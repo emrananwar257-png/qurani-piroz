@@ -1937,6 +1937,9 @@ export const MushafPageView: React.FC<
       > | null
     >(null);
 
+  const longPressTriggeredRef =
+    useRef(false);
+
   const [
     allAyahData,
     setAllAyahData
@@ -3566,6 +3569,9 @@ export const MushafPageView: React.FC<
     ayah: any,
     topPercent: number
   ) => {
+    longPressTriggeredRef.current =
+      false;
+
     setPressingBox(
       boxKey
     );
@@ -3580,6 +3586,9 @@ export const MushafPageView: React.FC<
 
     longPressTimer.current =
       setTimeout(() => {
+        longPressTriggeredRef.current =
+          true;
+
         setHighlightedAyah({
           ayah,
           topPercent
@@ -4938,15 +4947,31 @@ export const MushafPageView: React.FC<
                                         topPct
                                       );
                                     }}
-                                    onPointerUp={
-                                      cancelLongPress
-                                    }
+                                    onPointerUp={e => {
+                                      e.stopPropagation();
+                                      cancelLongPress();
+                                    }}
                                     onPointerLeave={
                                       cancelLongPress
                                     }
                                     onPointerCancel={
                                       cancelLongPress
                                     }
+                                    onClick={e => {
+                                      e.stopPropagation();
+
+                                      if (
+                                        longPressTriggeredRef.current
+                                      ) {
+                                        longPressTriggeredRef.current =
+                                          false;
+                                        return;
+                                      }
+
+                                      void playAyahAudio(
+                                        matchedAyah
+                                      );
+                                    }}
                                     onContextMenu={e =>
                                       e.preventDefault()
                                     }
