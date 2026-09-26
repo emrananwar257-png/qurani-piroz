@@ -2082,6 +2082,12 @@ export const MushafPageView: React.FC<
   const pageAudioIndexRef =
     useRef(-1);
 
+  const pendingContinuousAyahRef =
+    useRef<{
+      surahNumber: number;
+      numberInSurah: number;
+    } | null>(null);
+
   const [
     pressingBox,
     setPressingBox
@@ -3183,17 +3189,25 @@ export const MushafPageView: React.FC<
             AYAH_CANVAS_HEIGHT) *
           100;
 
-        if (selectedReciter.id === 'raad_kurdi') {
-          setAudioHighlightedAyah({
-            ayah: a,
-            topPercent: topPct
-          });
-        } else {
-          setHighlightedAyah({
-            ayah: a,
-            topPercent: topPct
-          });
-        }
+        setAudioHighlightedAyah({
+          ayah: a,
+          topPercent: topPct
+        });
+      }
+
+      const selectedPageIndex =
+        pageAyahsData.findIndex(
+          item =>
+            item.surahNumber === a.surahNumber &&
+            item.numberInSurah === a.numberInSurah
+        );
+
+      if (selectedPageIndex >= 0) {
+        pageAudioIndexRef.current =
+          selectedPageIndex;
+        setPageAudioIndex(
+          selectedPageIndex
+        );
       }
 
       if (
@@ -3451,7 +3465,7 @@ export const MushafPageView: React.FC<
           false
         );
 
-        setHighlightedAyah(
+        setAudioHighlightedAyah(
           null
         );
 
@@ -3506,17 +3520,10 @@ export const MushafPageView: React.FC<
             AYAH_CANVAS_HEIGHT) *
           100;
 
-        if (selectedReciter.id === 'raad_kurdi') {
-          setAudioHighlightedAyah({
-            ayah,
-            topPercent: topPct
-          });
-        } else {
-          setHighlightedAyah({
-            ayah,
-            topPercent: topPct
-          });
-        }
+        setAudioHighlightedAyah({
+          ayah,
+          topPercent: topPct
+        });
       }
 
       if (
@@ -4103,6 +4110,41 @@ export const MushafPageView: React.FC<
     pageAyahsData
   ]);
 
+  useEffect(() => {
+    const pending =
+      pendingContinuousAyahRef.current;
+
+    if (
+      !pending ||
+      !pageAyahsData.length
+    ) {
+      return;
+    }
+
+    const index =
+      pageAyahsData.findIndex(
+        item =>
+          item.surahNumber ===
+            pending.surahNumber &&
+          item.numberInSurah ===
+            pending.numberInSurah
+      );
+
+    if (index < 0) {
+      return;
+    }
+
+    pendingContinuousAyahRef.current =
+      null;
+
+    void playPageAyahAtIndex(
+      index
+    );
+  }, [
+    currentPage,
+    pageAyahsData
+  ]);
+
   /* =========================================================
      PAGE AUDIO RESET
   ========================================================= */
@@ -4617,19 +4659,11 @@ export const MushafPageView: React.FC<
             );
 
             if (box) {
-              if (selectedReciter.id === 'raad_kurdi') {
-                setAudioHighlightedAyah({
-                  ayah: ayahData,
-                  topPercent:
-                    (box.y0 / AYAH_CANVAS_HEIGHT) * 100
-                });
-              } else {
-                setHighlightedAyah({
-                  ayah: ayahData,
-                  topPercent:
-                    (box.y0 / AYAH_CANVAS_HEIGHT) * 100
-                });
-              }
+              setAudioHighlightedAyah({
+                ayah: ayahData,
+                topPercent:
+                  (box.y0 / AYAH_CANVAS_HEIGHT) * 100
+              });
             }
           }
         }
@@ -4666,36 +4700,72 @@ export const MushafPageView: React.FC<
       const currentIndex =
         pageAudioIndexRef.current;
 
-      /*
-       * Single ayah playback:
-       * stop after the ayah.
-       */
       if (
-        currentIndex < 0
+        currentIndex >= 0 &&
+        currentIndex < pageAyahsData.length
       ) {
-        setIsPlayingAudio(
-          false
-        );
+        const currentAyah =
+          pageAyahsData[currentIndex];
 
-        setPlayingAyahKey(
-          null
-        );
+        const currentSurah =
+          surahsList.find(
+            s => s.number === currentAyah.surahNumber
+          );
 
-        return;
-      }
+        let nextSurahNumber =
+          currentAyah.surahNumber;
+        let nextAyahNumber =
+          currentAyah.numberInSurah + 1;
 
-      const nextIndex =
-        currentIndex + 1;
+        if (
+          currentSurah &&
+          nextAyahNumber > currentSurah.ayahs
+        ) {
+          nextSurahNumber =
+            currentAyah.surahNumber + 1;
+          nextAyahNumber = 1;
+        }
 
-      if (
-        nextIndex <
-        pageAyahsData.length
-      ) {
-        void playPageAyahAtIndex(
-          nextIndex
-        );
+        const nextSurah =
+          surahsList.find(
+            s => s.number === nextSurahNumber
+          );
 
-        return;
+        if (nextSurah) {
+          const nextIndex =
+            pageAyahsData.findIndex(
+              item =>
+                item.surahNumber ===
+                  nextSurahNumber &&
+                item.numberInSurah ===
+                  nextAyahNumber
+            );
+
+          if (nextIndex >= 0) {
+            void playPageAyahAtIndex(
+              nextIndex
+            );
+            return;
+          }
+
+          if (
+            nextSurah.startPage &&
+            nextSurah.startPage !== currentPage &&
+            onJumpToPage
+          ) {
+            pendingContinuousAyahRef.current = {
+              surahNumber:
+                nextSurahNumber,
+              numberInSurah:
+                nextAyahNumber
+            };
+
+            onJumpToPage(
+              nextSurah.startPage
+            );
+            return;
+          }
+        }
       }
 
       pageAudioIndexRef.current =
@@ -4705,43 +4775,17 @@ export const MushafPageView: React.FC<
         -1
       );
 
-      setIsPlayingAudio(
-        false
-      );
-
       setPlayingAyahKey(
         null
       );
 
-      if (
-        pageAyahsData.length >
-        0
-      ) {
-        const lastAyah =
-          pageAyahsData[
-            pageAyahsData.length -
-              1
-          ];
+      setAudioHighlightedAyah(
+        null
+      );
 
-        const lastBox =
-          ayahBoxes.find(
-            b =>
-              b.s ===
-                lastAyah.surahNumber &&
-              b.a ===
-                lastAyah.numberInSurah
-          );
-
-        if (lastBox) {
-          setHighlightedAyah({
-            ayah: lastAyah,
-            topPercent:
-              (lastBox.y0 /
-                AYAH_CANVAS_HEIGHT) *
-              100
-          });
-        }
-      }
+      setIsPlayingAudio(
+        false
+      );
     };
 
   /* =========================================================
@@ -5164,7 +5208,6 @@ export const MushafPageView: React.FC<
                                     box.a;
 
                                 const isAudioHighlighted =
-                                  selectedReciter.id === 'raad_kurdi' &&
                                   !!audioHighlightedAyah &&
                                   audioHighlightedAyah.ayah.surahNumber === box.s &&
                                   audioHighlightedAyah.ayah.numberInSurah === box.a;
