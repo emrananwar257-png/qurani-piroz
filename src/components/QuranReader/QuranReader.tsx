@@ -1043,11 +1043,13 @@ export function QuranReader({
     useState<AyahCoordinate[]>([]);
 
   const [
-    playingAyahIndex,
-    setPlayingAyahIndex,
-  ] = useState<number | null>(
-    null,
-  );
+    playingAyah,
+    setPlayingAyah,
+  ] = useState<{
+    page: number;
+    surahNumber: number;
+    ayahNumber: number;
+  } | null>(null);
 
   const [isPlaying, setIsPlaying] =
     useState(false);
@@ -1227,7 +1229,7 @@ export function QuranReader({
       audio.load();
     }
 
-    setPlayingAyahIndex(null);
+    setPlayingAyah(null);
     setIsPlaying(false);
     setIsLoading(false);
     setTimingRows([]);
@@ -1333,48 +1335,36 @@ export function QuranReader({
         audioTime: number,
         rows: TimingRow[],
         pageAyahs: AyahData[],
+        activeSurahNumber: number,
       ) => {
-        if (
-          !rows.length ||
-          !pageAyahs.length
-        ) {
-          return -1;
-        }
+        if (!rows.length || !pageAyahs.length) return -1;
 
-        const localAyahNumbers =
-          pageAyahs.map((ayah, index) =>
-            Number(
-              ayah?.ayah ??
-                ayah?.numberInSurah ??
-                index + 1,
-            ),
+        const rowByAyah = new Map(
+          rows
+            .filter((row) => row.surah === undefined || row.surah === activeSurahNumber)
+            .map((row) => [row.ayah, row]),
+        );
+
+        for (let i = 0; i < pageAyahs.length; i += 1) {
+          const ayah = pageAyahs[i];
+          const surahNumber = Number(
+            ayah?.surahNumber ??
+              (ayah as any)?.surah?.number ??
+              0,
           );
+          if (surahNumber !== activeSurahNumber) continue;
 
-        for (
-          let i = 0;
-          i < localAyahNumbers.length;
-          i += 1
-        ) {
-          const ayahNumber =
-            localAyahNumbers[i];
-
-          const timing =
-            rows.find(
-              (row) =>
-                row.ayah ===
-                ayahNumber,
-            );
-
+          const ayahNumber = Number(
+            ayah?.ayah ??
+              ayah?.numberInSurah ??
+              i + 1,
+          );
+          const timing = rowByAyah.get(ayahNumber);
           if (!timing) continue;
 
           if (
-            audioTime >=
-              timing.start &&
-            audioTime <=
-              Math.max(
-                timing.end,
-                timing.start + 0.15,
-              )
+            audioTime >= timing.start &&
+            audioTime <= Math.max(timing.end, timing.start + 0.15)
           ) {
             return i;
           }
@@ -1475,7 +1465,7 @@ export function QuranReader({
 
       audio.pause();
       setIsPlaying(false);
-      setPlayingAyahIndex(null);
+      setPlayingAyah(null);
       activeTimingRef.current = null;
     };
 
@@ -1531,7 +1521,7 @@ export function QuranReader({
         setError(null);
 
         activeTimingRef.current = null;
-        setPlayingAyahIndex(null);
+        setPlayingAyah(null);
         setIsPlaying(false);
         audio.pause();
 
@@ -1553,7 +1543,10 @@ export function QuranReader({
           );
 
           const timing = rows.find(
-            (row) => row.ayah === ayahNumber,
+            (row) =>
+              row.surah === undefined || row.surah === surahNumber
+                ? row.ayah === ayahNumber
+                : false,
           );
 
           setTimingRows(rows);
@@ -1592,11 +1585,11 @@ export function QuranReader({
             }
 
             activeTimingRef.current = timing;
-            setPlayingAyahIndex(index);
+            setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
           } else {
             // ئەگەر قارییەکە داتای تایمی نەبوو، دەنگەکە لێبدە بەبێ هیچ هایلایتێک
             activeTimingRef.current = null;
-            setPlayingAyahIndex(null);
+            setPlayingAyah(null);
 
             try {
               audio.currentTime = 0;
@@ -1620,7 +1613,7 @@ export function QuranReader({
           }
 
           activeTimingRef.current = null;
-          setPlayingAyahIndex(null);
+          setPlayingAyah(null);
           setIsPlaying(false);
 
           setError(
@@ -1663,13 +1656,13 @@ export function QuranReader({
 
       setIsLoading(false);
       setIsPlaying(false);
-      setPlayingAyahIndex(null);
+      setPlayingAyah(null);
     }, []);
 
   const togglePlayPause =
     useCallback(() => {
       const audio = audioRef.current;
-      if (!audio || playingAyahIndex === null) {
+      if (!audio || playingAyah === null) {
         return;
       }
 
@@ -1689,7 +1682,7 @@ export function QuranReader({
       }
     }, [
       announceAudioPlaying,
-      playingAyahIndex,
+      playingAyah,
     ]);
 
   const handleTimeUpdate =
@@ -1713,25 +1706,30 @@ export function QuranReader({
         audio.pause();
         setIsPlaying(false);
 
-        const currentIndex =
-          playingAyahIndex;
+        const current = playingAyah;
         if (
-          currentIndex === null ||
-          currentIndex < 0
+          !current || current.page !== currentPage
         ) {
           activeTimingRef.current = null;
           return;
         }
 
-        const nextIndex =
-          currentIndex + 1;
+        const nextIndex = ayahs.findIndex(
+          (ayah, index) =>
+            index > ayahs.findIndex(
+              (item) =>
+                Number(item?.surahNumber ?? (item as any)?.surah?.number ?? 0) === current.surahNumber &&
+                Number(item?.ayah ?? item?.numberInSurah ?? 0) === current.ayahNumber,
+            ) &&
+            Number(ayah?.surahNumber ?? (ayah as any)?.surah?.number ?? 0) === current.surahNumber,
+        );
 
         if (nextIndex < ayahs.length) {
-          const nextAyah = ayahs[nextIndex];
+          const nextAyah = nextIndex >= 0 ? ayahs[nextIndex] : null;
           const nextAyahSurah = Number(
             nextAyah?.surahNumber ??
               (nextAyah as any)?.surah?.number ??
-              selectedSurahNumber,
+              0,
           );
           const nextAyahNumber = Number(
             nextAyah?.ayah ??
@@ -1740,17 +1738,18 @@ export function QuranReader({
           );
 
           const nextTiming =
-            nextAyahSurah ===
-              Number(activeTimingRef.current?.surah ?? nextAyahSurah)
+            nextAyahSurah === current.surahNumber
               ? timingRows.find(
-                  (row) => row.ayah === nextAyahNumber,
+                  (row) =>
+                    (row.surah === undefined || row.surah === current.surahNumber) &&
+                    row.ayah === nextAyahNumber,
                 )
               : null;
 
           if (nextTiming) {
             activeTimingRef.current =
               nextTiming;
-            setPlayingAyahIndex(nextIndex);
+            setPlayingAyah({ page: currentPage, surahNumber: nextAyahSurah, ayahNumber: nextAyahNumber });
 
             try {
               audio.currentTime = Math.max(
@@ -1775,12 +1774,12 @@ export function QuranReader({
         }
 
         activeTimingRef.current = null;
-        setPlayingAyahIndex(null);
+        setPlayingAyah(null);
         return;
       }
 
       if (
-        playingAyahIndex === null ||
+        playingAyah === null ||
         !ayahs.length ||
         !timingRows.length
       ) {
@@ -1796,15 +1795,15 @@ export function QuranReader({
 
       if (
         index >= 0 &&
-        index !== playingAyahIndex
+        index !== playingAyah
       ) {
-        setPlayingAyahIndex(index);
+        setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
       }
     }, [
       announceAudioPlaying,
       ayahs,
       getCurrentPageAyahIndex,
-      playingAyahIndex,
+      playingAyah,
       timingRows,
     ]);
 
@@ -1812,7 +1811,7 @@ export function QuranReader({
     useCallback(() => {
       activeTimingRef.current = null;
       loadingPlayRef.current = false;
-      setPlayingAyahIndex(null);
+      setPlayingAyah(null);
       setIsPlaying(false);
       setIsLoading(false);
     }, []);
@@ -1848,7 +1847,7 @@ export function QuranReader({
 
           const { ayah, index } = match;
           const active =
-            playingAyahIndex === index;
+            playingAyah?.page === currentPage && playingAyah.surahNumber === box.surahNumber && playingAyah.ayahNumber === box.ayahNumber;
 
           return (
             <button
@@ -1900,7 +1899,7 @@ export function QuranReader({
       ayahs,
       currentPage,
       playAyah,
-      playingAyahIndex,
+      playingAyah,
       selectedSurahNumber,
     ]);
 
@@ -2293,7 +2292,7 @@ export function QuranReader({
             togglePlayPause
           }
           disabled={
-            playingAyahIndex ===
+            playingAyah ===
               null ||
             isLoading
           }
@@ -2309,7 +2308,7 @@ export function QuranReader({
             fontSize: 17,
             flexShrink: 0,
             opacity:
-              playingAyahIndex ===
+              playingAyah ===
                 null ||
               isLoading
                 ? 0.5
@@ -2369,10 +2368,10 @@ export function QuranReader({
               color: '#777',
             }}
           >
-            {playingAyahIndex !==
+            {playingAyah !==
             null
               ? `ئایەت ${
-                  playingAyahIndex +
+                  playingAyah +
                   1
                 }`
               : 'ئایەتێک هەڵبژێرە'}
