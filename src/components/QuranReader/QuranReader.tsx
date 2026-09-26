@@ -1584,10 +1584,20 @@ export function QuranReader({
             surahNumber,
           );
 
-          if (audio.src !== src) {
-            audio.src = src;
-            audio.load();
+          // هەر tap ـێک دەبێت audio source ـی سورەتی خۆی بە ڕوونی دابنێت.
+          // بە پشکنینی audio.src پشت بە browser ـەکە نابەستین،
+          // چونکە لە گۆڕینی 112 → 113 → 114 دەتوانێت source ـی پێشوو بمێنێتەوە.
+          // ناسنامەی ڕاستەقینەی playback لێرەدا surahNumber ـە.
+          audio.pause();
+          try {
+            audio.currentTime = 0;
+          } catch {
+            // Ignore.
           }
+          audio.removeAttribute('src');
+          audio.load();
+          audio.src = src;
+          audio.load();
 
           await waitForMetadata(audio);
 
