@@ -4582,7 +4582,7 @@ export const MushafPageView: React.FC<
           );
 
         if (box) {
-          setHighlightedAyah({
+          setAudioHighlightedAyah({
             ayah: ayahData,
             topPercent:
               (box.y0 /
