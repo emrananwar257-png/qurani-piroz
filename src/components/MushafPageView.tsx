@@ -3563,6 +3563,52 @@ export const MushafPageView: React.FC<
                   timings
                 }
               : null;
+        } else if (
+          selectedReciter.audioSource ===
+          'mp3quran'
+        ) {
+          /*
+           * Use the exact MP3Quran ayah timing for page playback
+           * as well, so the highlight moves with the spoken ayah.
+           */
+          const timings =
+            await getMp3QuranTiming(
+              selectedReciter,
+              ayah.surahNumber
+            );
+
+          gaplessActiveTimingRef.current =
+            timings.length
+              ? {
+                  surahNumber:
+                    ayah.surahNumber,
+                  timings
+                }
+              : null;
+        } else if (
+          selectedReciter.audioSource ===
+          'mp3quran'
+        ) {
+          /*
+           * Peshawa and other MP3Quran reciters also have
+           * exact per-ayah start/end timing. Keep the same
+           * timing object active so the green highlight can
+           * follow the audio frame-by-frame, just like Raad.
+           */
+          const timings =
+            await getMp3QuranTiming(
+              selectedReciter,
+              ayah.surahNumber
+            );
+
+          gaplessActiveTimingRef.current =
+            timings.length
+              ? {
+                  surahNumber:
+                    ayah.surahNumber,
+                  timings
+                }
+              : null;
         }
 
         if (
@@ -3611,8 +3657,10 @@ export const MushafPageView: React.FC<
         let pageAudioEndTime = source.endTime ?? null;
 
         if (
-          selectedReciter.id === 'raad_kurdi' &&
-          selectedReciter.audioSource === 'gapless'
+          (selectedReciter.audioSource === 'gapless' ||
+            selectedReciter.audioSource === 'mp3quran') &&
+          gaplessActiveTimingRef.current?.surahNumber ===
+            ayah.surahNumber
         ) {
           const sameSurahPageAyahs = pageAyahsData.filter(
             item => item.surahNumber === ayah.surahNumber
@@ -4429,8 +4477,10 @@ export const MushafPageView: React.FC<
         gaplessActiveTimingRef.current;
 
       if (
-        selectedReciter.audioSource ===
-          'gapless' &&
+        (selectedReciter.audioSource ===
+          'gapless' ||
+          selectedReciter.audioSource ===
+            'mp3quran') &&
         gapless &&
         pageAyahsData.some(
           item =>
@@ -4611,7 +4661,8 @@ export const MushafPageView: React.FC<
 
     if (
       !isPlayingAudio ||
-      selectedReciter.audioSource !== 'gapless'
+      (selectedReciter.audioSource !== 'gapless' &&
+        selectedReciter.audioSource !== 'mp3quran')
     ) {
       stopFrameSync();
       return;
