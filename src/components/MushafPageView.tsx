@@ -168,27 +168,197 @@ const loadGaplessTiming = async (
 
     const SQL = await initSqlJs({ locateFile: () => sqlWasmUrl });
     const db = new SQL.Database(bytes);
-    const result = db.exec(
-      `SELECT ayah, time FROM timings WHERE sura = ${Number(surahNumber)} ORDER BY ayah ASC`
-    );
 
-    const rows = result[0]?.values ?? [];
-    const points = rows.map(row => ({
-      ayah: Number(row[0]),
-      timeMs: Number(row[1])
-    })).filter(row => Number.isFinite(row.ayah) && Number.isFinite(row.timeMs));
+    /*
+     * Raad Al-Kurdi has its own timing database.  Do not assume that
+     * its internal table/column names are identical to another gapless
+     * reciter.  Discover the timing table/columns from the DB itself,
+     * then use the exact surah + ayah rows from that database.
+     *
+     * Other gapless reciters keep the existing fixed schema.
+     */
+    let rows: any[][] = [];
+    let endColumnPresent = false;
+
+    if (reciter.id === 'raad_kurdi') {
+      const quoteIdentifier = (value: string) =>
+        `"${value.replace(/"/g, '""')}"`;
+
+      const normalizeColumnName = (value: string) =>
+        value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const tableResult = db.exec(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table'
+           AND name NOT LIKE 'sqlite_%'
+         ORDER BY name`
+      );
+
+      const tableNames = (tableResult[0]?.values ?? [])
+        .map(row => String(row[0] ?? ''))
+        .filter(Boolean);
+
+      let timingTable: string | null = null;
+      let surahColumn: string | null = null;
+      let ayahColumn: string | null = null;
+      let startColumn: string | null = null;
+      let endColumn: string | null = null;
+
+      const findColumn = (
+        columns: string[],
+        candidates: string[]
+      ) => {
+        const wanted = new Set(candidates);
+        return (
+          columns.find(column =>
+            wanted.has(normalizeColumnName(column))
+          ) ?? null
+        );
+      };
+
+      for (const tableName of tableNames) {
+        const info = db.exec(
+          `PRAGMA table_info(${quoteIdentifier(tableName)})`
+        );
+
+        const columns = (info[0]?.values ?? [])
+          .map(row => String(row[1] ?? ''))
+          .filter(Boolean);
+
+        const foundSurah = findColumn(columns, [
+          'sura',
+          'surah',
+          'suranumber',
+          'surahnumber'
+        ]);
+        const foundAyah = findColumn(columns, [
+          'ayah',
+          'ayahnumber',
+          'versenumber',
+          'verse'
+        ]);
+        const foundStart = findColumn(columns, [
+          'time',
+          'timems',
+          'timestamp',
+          'start',
+          'starttime',
+          'starttimems'
+        ]);
+        const foundEnd = findColumn(columns, [
+          'end',
+          'endtime',
+          'endtimems'
+        ]);
+
+        if (foundSurah && foundAyah && foundStart) {
+          timingTable = tableName;
+          surahColumn = foundSurah;
+          ayahColumn = foundAyah;
+          startColumn = foundStart;
+          endColumn = foundEnd;
+          break;
+        }
+      }
+
+      if (
+        !timingTable ||
+        !surahColumn ||
+        !ayahColumn ||
+        !startColumn
+      ) {
+        throw new Error(
+          'Raad timing DB: timing table/columns not found'
+        );
+      }
+
+      endColumnPresent = !!endColumn;
+
+      const selectedColumns = [
+        quoteIdentifier(ayahColumn),
+        quoteIdentifier(startColumn),
+        ...(endColumn
+          ? [quoteIdentifier(endColumn)]
+          : [])
+      ].join(', ');
+
+      const result = db.exec(
+        `SELECT ${selectedColumns}
+         FROM ${quoteIdentifier(timingTable)}
+         WHERE ${quoteIdentifier(surahColumn)} = ${Number(surahNumber)}
+         ORDER BY ${quoteIdentifier(ayahColumn)} ASC`
+      );
+
+      rows = result[0]?.values ?? [];
+    } else {
+      const result = db.exec(
+        `SELECT ayah, time
+         FROM timings
+         WHERE sura = ${Number(surahNumber)}
+         ORDER BY ayah ASC`
+      );
+
+      rows = result[0]?.values ?? [];
+    }
+
+    const toSeconds = (value: number) => {
+      if (!Number.isFinite(value)) {
+        return 0;
+      }
+
+      return Math.abs(value) > 10000
+        ? value / 1000
+        : value;
+    };
+
+    const points = rows
+      .map(row => ({
+        ayah: Number(row[0]),
+        timeMs: Number(row[1]),
+        endTimeMs: endColumnPresent
+          ? Number(row[2])
+          : null
+      }))
+      .filter(
+        row =>
+          Number.isFinite(row.ayah) &&
+          Number.isFinite(row.timeMs)
+      )
+      .map(row => ({
+        ...row,
+        timeMs: toSeconds(row.timeMs),
+        endTimeMs:
+          row.endTimeMs !== null &&
+          Number.isFinite(row.endTimeMs)
+            ? toSeconds(row.endTimeMs)
+            : null
+      }));
 
     const timings: Mp3QuranTiming[] = [];
     for (let i = 0; i < points.length; i += 1) {
       const point = points[i];
       if (point.ayah < 1 || point.ayah > 998) continue;
+
       const next = points[i + 1];
-      const endPoint = next ?? points.find(item => item.ayah === 999);
-      if (!endPoint || endPoint.timeMs <= point.timeMs) continue;
+      const nextStart = next?.timeMs ?? null;
+      const directEnd = point.endTimeMs;
+
+      const endTime =
+        directEnd !== null && directEnd > point.timeMs
+          ? directEnd
+          : nextStart;
+
+      if (
+        endTime === null ||
+        endTime <= point.timeMs
+      ) {
+        continue;
+      }
+
       timings.push({
         ayah: point.ayah,
-        start_time: point.timeMs / 1000,
-        end_time: endPoint.timeMs / 1000
+        start_time: point.timeMs,
+        end_time: endTime
       });
     }
 
@@ -1696,6 +1866,21 @@ export const MushafPageView: React.FC<
       if (reciter.audioSource === 'gapless') {
         const timings = await loadGaplessTiming(reciter, surahNumber);
         const timing = timings?.find(item => item.ayah === ayahNumber);
+
+        /*
+         * Raad must never fall back to the beginning of the surah when
+         * its exact DB timing is unavailable.  Doing so makes a long
+         * press on an ayah play the wrong passage.
+         */
+        if (
+          reciter.id === 'raad_kurdi' &&
+          !timing
+        ) {
+          throw new Error(
+            `Raad timing نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
+          );
+        }
+
         const base = reciter.audioBaseUrl?.endsWith('/')
           ? reciter.audioBaseUrl
           : reciter.audioBaseUrl ? `${reciter.audioBaseUrl}/` : '';
@@ -1705,10 +1890,9 @@ export const MushafPageView: React.FC<
         }
 
         /*
-         * گرنگ: ئەگەر DB ـی timing بەهەر هۆکارێک نەخوێندرایەوە،
-         * دەنگ نابێت بە تەواوی بوەستێت. MP3 ـی تەواوی سورەت
-         * هەر دەبێت بتوانرێت پێشکەش بکرێت؛ تەنها highlight ـی
-         * ئایەتەکە لەو دۆخەدا بەبێ timing ـی ورد دەبێت.
+         * Raad uses the exact ayah boundary returned by its own
+         * timing database.  Other gapless reciters keep their
+         * existing fallback behavior.
          */
         return {
           url: `${base}${String(surahNumber).padStart(3, '0')}.mp3`,
