@@ -3253,6 +3253,16 @@ export const MushafPageView: React.FC<
         if (!isSameSrc) {
           audio.src =
             source.url;
+
+          /*
+           * Raad has one MP3 per surah. When the user switches
+           * between two surahs on the same Mushaf page, force the
+           * browser to load the NEW surah before seeking.
+           * This branch is Raad-only; other reciters are unchanged.
+           */
+          if (selectedReciter.id === 'raad_kurdi') {
+            audio.load();
+          }
         }
 
         // Single-ayah playback must stop at the selected ayah's
@@ -3566,6 +3576,16 @@ export const MushafPageView: React.FC<
         if (!isSameSrc) {
           audio.src =
             source.url;
+
+          /*
+           * Raad has one MP3 per surah. When the user switches
+           * between two surahs on the same Mushaf page, force the
+           * browser to load the NEW surah before seeking.
+           * This branch is Raad-only; other reciters are unchanged.
+           */
+          if (selectedReciter.id === 'raad_kurdi') {
+            audio.load();
+          }
         }
 
         /*
