@@ -3274,7 +3274,10 @@ export const MushafPageView: React.FC<
            * browser to load the NEW surah before seeking.
            * This branch is Raad-only; other reciters are unchanged.
            */
-          if (selectedReciter.id === 'raad_kurdi') {
+          if (
+            selectedReciter.id === 'raad_kurdi' ||
+            selectedReciter.id === 'peshawa_kurdi'
+          ) {
             audio.load();
           }
         }
@@ -3590,7 +3593,10 @@ export const MushafPageView: React.FC<
            * browser to load the NEW surah before seeking.
            * This branch is Raad-only; other reciters are unchanged.
            */
-          if (selectedReciter.id === 'raad_kurdi') {
+          if (
+            selectedReciter.id === 'raad_kurdi' ||
+            selectedReciter.id === 'peshawa_kurdi'
+          ) {
             audio.load();
           }
         }
