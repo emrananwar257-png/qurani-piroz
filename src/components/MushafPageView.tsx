@@ -2955,8 +2955,26 @@ export const MushafPageView: React.FC<
       const requestId =
         ++audioRequestIdRef.current;
 
+      /*
+       * A new ayah request immediately invalidates every
+       * previous timing/highlight state. This is important
+       * on pages that contain more than one surah (for example
+       * page 604: 112, 113, 114), so an old green highlight
+       * cannot survive while the new ayah is loading.
+       */
       activeSegmentRef.current =
         null;
+
+      gaplessActiveTimingRef.current =
+        null;
+
+      gaplessLastAyahKeyRef.current =
+        null;
+
+      estimatedTimingRef.current =
+        null;
+
+      setAudioHighlightedAyah(null);
 
       pageAudioIndexRef.current =
         -1;
@@ -3589,6 +3607,15 @@ export const MushafPageView: React.FC<
         longPressTriggeredRef.current =
           true;
 
+        /*
+         * Ayah interaction is intentionally long-press only.
+         * A short tap must NOT start playback.
+         *
+         * The exact ayah (surahNumber + numberInSurah) is sent
+         * directly to the same playback pipeline used everywhere
+         * else, so the selected ayah and the playing ayah cannot
+         * drift apart on shared-surah pages.
+         */
         setHighlightedAyah({
           ayah,
           topPercent
@@ -3603,6 +3630,8 @@ export const MushafPageView: React.FC<
         );
 
         navigator.vibrate?.(40);
+
+        void playAyahAudio(ayah);
       }, LONG_PRESS_MS);
   };
 
@@ -4958,6 +4987,12 @@ export const MushafPageView: React.FC<
                                       cancelLongPress
                                     }
                                     onClick={e => {
+                                      /*
+                                       * Playback is NOT started by a normal tap.
+                                       * Keep click propagation blocked so the page
+                                       * itself does not close/change the ayah state.
+                                       * Playback starts only after the long-press timer.
+                                       */
                                       e.stopPropagation();
 
                                       if (
@@ -4965,12 +5000,7 @@ export const MushafPageView: React.FC<
                                       ) {
                                         longPressTriggeredRef.current =
                                           false;
-                                        return;
                                       }
-
-                                      void playAyahAudio(
-                                        matchedAyah
-                                      );
                                     }}
                                     onContextMenu={e =>
                                       e.preventDefault()
