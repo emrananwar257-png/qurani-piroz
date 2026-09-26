@@ -4471,14 +4471,15 @@ export const MushafPageView: React.FC<
               );
 
             if (box) {
-              if (selectedReciter.id === 'raad_kurdi') {
+              /*
+               * Every gapless reciter uses the same audio-driven
+               * highlight path as Raad. The green highlight must
+               * follow the ayah identified by the timing data,
+               * not the manually selected ayah.
+               */
+              if (gaplessLastAyahKeyRef.current !== key) {
+                gaplessLastAyahKeyRef.current = key;
                 setAudioHighlightedAyah({
-                  ayah: ayahData,
-                  topPercent:
-                    (box.y0 / AYAH_CANVAS_HEIGHT) * 100
-                });
-              } else if (playingAyahKey !== key) {
-                setHighlightedAyah({
                   ayah: ayahData,
                   topPercent:
                     (box.y0 / AYAH_CANVAS_HEIGHT) * 100
@@ -4610,7 +4611,6 @@ export const MushafPageView: React.FC<
 
     if (
       !isPlayingAudio ||
-      selectedReciter.id !== 'raad_kurdi' ||
       selectedReciter.audioSource !== 'gapless'
     ) {
       stopFrameSync();
