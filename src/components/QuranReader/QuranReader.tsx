@@ -1233,7 +1233,6 @@ export function QuranReader({
     setIsPlaying(false);
     setIsLoading(false);
     setTimingRows([]);
-    setAyahBoxes([]);
   }, [
     currentPage,
     selectedReciter?.id,
@@ -2390,12 +2389,8 @@ export function QuranReader({
               color: '#777',
             }}
           >
-            {playingAyah !==
-            null
-              ? `ئایەت ${
-                  playingAyah +
-                  1
-                }`
+            {playingAyah !== null
+              ? `ئایەت ${playingAyah.surahNumber}:${playingAyah.ayahNumber}`
               : 'ئایەتێک هەڵبژێرە'}
           </div>
         </div>
