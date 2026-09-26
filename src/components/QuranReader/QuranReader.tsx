@@ -1724,7 +1724,7 @@ export function QuranReader({
             Number(ayah?.surahNumber ?? (ayah as any)?.surah?.number ?? 0) === current.surahNumber,
         );
 
-        if (nextIndex < ayahs.length) {
+        if (nextIndex >= 0 && nextIndex < ayahs.length) {
           const nextAyah = nextIndex >= 0 ? ayahs[nextIndex] : null;
           const nextAyahSurah = Number(
             nextAyah?.surahNumber ??
@@ -1786,18 +1786,40 @@ export function QuranReader({
         return;
       }
 
-      const index =
-        getCurrentPageAyahIndex(
-          now,
-          timingRows,
-          ayahs,
+      const activeSurahNumber = playingAyah?.surahNumber ?? selectedSurahNumber;
+
+      const index = getCurrentPageAyahIndex(
+        now,
+        timingRows,
+        ayahs,
+        activeSurahNumber,
+      );
+
+      if (index >= 0) {
+        const currentAyah = ayahs[index];
+        const currentSurahNumber = Number(
+          currentAyah?.surahNumber ??
+            (currentAyah as any)?.surah?.number ??
+            activeSurahNumber,
+        );
+        const currentAyahNumber = Number(
+          currentAyah?.ayah ??
+            currentAyah?.numberInSurah ??
+            index + 1,
         );
 
-      if (
-        index >= 0 &&
-        index !== playingAyah
-      ) {
-        setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
+        if (
+          !playingAyah ||
+          playingAyah.page !== currentPage ||
+          playingAyah.surahNumber !== currentSurahNumber ||
+          playingAyah.ayahNumber !== currentAyahNumber
+        ) {
+          setPlayingAyah({
+            page: currentPage,
+            surahNumber: currentSurahNumber,
+            ayahNumber: currentAyahNumber,
+          });
+        }
       }
     }, [
       announceAudioPlaying,
