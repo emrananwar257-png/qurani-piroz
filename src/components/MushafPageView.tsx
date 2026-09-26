@@ -306,9 +306,12 @@ const loadGaplessTiming = async (
         return 0;
       }
 
-      return Math.abs(value) > 10000
-        ? value / 1000
-        : value;
+      /*
+       * Raad's release DB stores timing points in milliseconds.
+       * Keep the conversion explicit so short surahs/early ayahs
+       * are not mistaken for seconds.
+       */
+      return value / 1000;
     };
 
     const points = rows
