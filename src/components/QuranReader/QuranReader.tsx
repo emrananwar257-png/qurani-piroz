@@ -865,8 +865,16 @@ const loadRaadTimingRows = async (): Promise<TimingRow[]> => {
         for (const row of rows.values) {
           const surah = Number(row[0]);
           const ayah = Number(row[1]);
-          const start = normalizeTimingValue(row[2]);
-          const end = normalizeTimingValue(row[3]);
+          const startRaw = Number(row[2]);
+          const endRaw = Number(row[3]);
+          const start =
+            Number.isFinite(startRaw) && startRaw > 1000
+              ? startRaw / 1000
+              : startRaw;
+          const end =
+            Number.isFinite(endRaw) && endRaw > 1000
+              ? endRaw / 1000
+              : endRaw;
 
           if (
             Number.isInteger(surah) &&
