@@ -895,9 +895,6 @@ const loadRaadTimingRows = async (): Promise<TimingRow[]> => {
           }
         }
 
-        if (allRows.length) {
-          break;
-        }
       }
 
       if (!allRows.length) {
@@ -1483,15 +1480,45 @@ export function QuranReader({
 
   const playAyah =
     useCallback(
-      async (index: number) => {
+      async (
+        indexOrIdentity:
+          | number
+          | {
+              surahNumber: number;
+              ayahNumber: number;
+            },
+      ) => {
+        const identity =
+          typeof indexOrIdentity === 'number'
+            ? null
+            : indexOrIdentity;
+
+        const index =
+          typeof indexOrIdentity === 'number'
+            ? indexOrIdentity
+            : ayahs.findIndex(
+                (ayah) =>
+                  Number(
+                    ayah?.surahNumber ??
+                      (ayah as any)?.surah?.number ??
+                      0,
+                  ) === identity.surahNumber &&
+                  Number(
+                    ayah?.ayah ??
+                      ayah?.numberInSurah ??
+                      0,
+                  ) === identity.ayahNumber,
+              );
+
+        const selectedAyah = ayahs[index];
+
         if (
           !selectedReciter ||
-          !ayahs[index]
+          !selectedAyah ||
+          index < 0
         ) {
           return;
         }
-
-        const selectedAyah = ayahs[index];
         const surahNumber = Number(
           selectedAyah?.surahNumber ??
             (selectedAyah as any)?.surah?.number ??
@@ -1535,11 +1562,13 @@ export function QuranReader({
             return;
           }
 
-          const ayahNumber = Number(
-            ayahs[index]?.ayah ??
-              ayahs[index]?.numberInSurah ??
-              index + 1,
-          );
+          const ayahNumber =
+            identity?.ayahNumber ??
+            Number(
+              selectedAyah?.ayah ??
+                selectedAyah?.numberInSurah ??
+                index + 1,
+            );
 
           const timing = rows.find(
             (row) =>
@@ -1877,7 +1906,10 @@ export function QuranReader({
               aria-label={`ئایەت ${box.surahNumber}:${box.ayahNumber}`}
               onClick={(event) => {
                 event.stopPropagation();
-                void playAyah(index);
+                void playAyah({
+                  surahNumber: box.surahNumber,
+                  ayahNumber: box.ayahNumber,
+                });
               }}
               style={{
                 position: 'absolute',
