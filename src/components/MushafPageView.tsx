@@ -3527,7 +3527,6 @@ export const MushafPageView: React.FC<
             null;
         }
       }
-    };
 
   /* =========================================================
      SHARE
