@@ -976,6 +976,7 @@ async function fetchGaplessTimingFromDb(
     let ayahColumn: string | null = null;
     let startColumn: string | null = null;
     let endColumn: string | null = null;
+    let inferredSurah: number | null = null;
 
     const findColumn = (
       columns: string[],
@@ -1042,13 +1043,24 @@ async function fetchGaplessTimingFromDb(
         'finishtime',
       ]);
 
-      if (foundSurah && foundAyah && foundStart) {
-        timingTable = tableName;
-        surahColumn = foundSurah;
-        ayahColumn = foundAyah;
-        startColumn = foundStart;
-        endColumn = foundEnd;
-        break;
+      if (foundAyah && foundStart) {
+        // Some gapless databases store one table per surah and therefore
+        // do not repeat a surah column in every row. Infer the surah from
+        // the table name when possible.
+        const tableNumberMatch = tableName.match(/(?:^|[^0-9])(\\d{1,3})(?:[^0-9]|$)/);
+        const tableNumber = tableNumberMatch
+          ? Number(tableNumberMatch[1])
+          : null;
+
+        if (foundSurah || tableNumber === surahNumber) {
+          timingTable = tableName;
+          surahColumn = foundSurah;
+          ayahColumn = foundAyah;
+          startColumn = foundStart;
+          endColumn = foundEnd;
+          inferredSurah = foundSurah ? null : tableNumber;
+          break;
+        }
       }
     }
 
@@ -1071,10 +1083,14 @@ async function fetchGaplessTimingFromDb(
         : []),
     ].join(', ');
 
+    const whereClause = surahColumn
+      ? `WHERE ${quoteIdentifier(surahColumn)} = ${Number(surahNumber)}`
+      : '';
+
     const result = db.exec(
       `SELECT ${selectedColumns}
        FROM ${quoteIdentifier(timingTable)}
-       WHERE ${quoteIdentifier(surahColumn)} = ${Number(surahNumber)}
+       ${whereClause}
        ORDER BY ${quoteIdentifier(ayahColumn)} ASC`,
     );
 
@@ -1755,11 +1771,21 @@ export function QuranReader({
         audio.pause();
 
         try {
-          const rows =
-            await timingForCurrentSurah(
+          let rows: TimingRow[] = [];
+          try {
+            rows = await timingForCurrentSurah(
               selectedReciter,
               surahNumber,
             );
+          } catch (timingError) {
+            // Timing must never block audio playback. If a timing DB has
+            // a different schema or is temporarily unavailable, play the
+            // surah audio and keep highlighting disabled until timing works.
+            console.warn(
+              'Gapless timing unavailable:',
+              timingError,
+            );
+          }
 
           if (requestId !== playRequestRef.current) {
             return;
@@ -1781,6 +1807,9 @@ export function QuranReader({
           );
 
           setTimingRows(rows);
+          if (!rows.length) {
+            setError(null);
+          }
 
           const src = makeSurahAudioUrl(
             selectedReciter,
