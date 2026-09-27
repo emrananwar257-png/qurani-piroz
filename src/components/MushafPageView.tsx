@@ -3634,6 +3634,33 @@ export const MushafPageView: React.FC<
           }
         }
 
+        /*
+         * Rizgar Kurdi: wait for the new surah MP3 metadata before
+         * seeking/playing. This makes first play reliable on mobile
+         * browsers and lets the exact ayah timing seek safely.
+         */
+        if (
+          selectedReciter.id === 'rizgar_kurdi' &&
+          audio.readyState < 1
+        ) {
+          await new Promise<void>((resolve, reject) => {
+            const onLoaded = () => {
+              cleanup();
+              resolve();
+            };
+            const onError = () => {
+              cleanup();
+              reject(new Error('Rizgar audio metadata load failed'));
+            };
+            const cleanup = () => {
+              audio.removeEventListener('loadedmetadata', onLoaded);
+              audio.removeEventListener('error', onError);
+            };
+            audio.addEventListener('loadedmetadata', onLoaded);
+            audio.addEventListener('error', onError);
+          });
+        }
+
         // Single-ayah playback must stop at the selected ayah's
         // own DB boundary. Page playback has separate end-time logic
         // in playPageAyahAtIndex().
@@ -4024,6 +4051,32 @@ export const MushafPageView: React.FC<
           ) {
             audio.load();
           }
+        }
+
+        /*
+         * Rizgar Kurdi: wait for the new surah MP3 metadata before
+         * seeking/playing so its exact timing can be applied reliably.
+         */
+        if (
+          selectedReciter.id === 'rizgar_kurdi' &&
+          audio.readyState < 1
+        ) {
+          await new Promise<void>((resolve, reject) => {
+            const onLoaded = () => {
+              cleanup();
+              resolve();
+            };
+            const onError = () => {
+              cleanup();
+              reject(new Error('Rizgar audio metadata load failed'));
+            };
+            const cleanup = () => {
+              audio.removeEventListener('loadedmetadata', onLoaded);
+              audio.removeEventListener('error', onError);
+            };
+            audio.addEventListener('loadedmetadata', onLoaded);
+            audio.addEventListener('error', onError);
+          });
         }
 
         /*
