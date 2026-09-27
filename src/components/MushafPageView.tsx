@@ -349,14 +349,6 @@ const loadGaplessTiming = async (
       );
 
       rows = result[0]?.values ?? [];
-
-        `SELECT ayah, time
-         FROM timings
-         WHERE sura = ${Number(surahNumber)}
-         ORDER BY ayah ASC`
-      );
-
-      rows = result[0]?.values ?? [];
     }
 
     const toSeconds = (value: number) => {
