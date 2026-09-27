@@ -327,12 +327,40 @@ const loadGaplessTiming = async (
     }
 
     /*
-     * Raad and Rizgar release timing databases use integer
-     * milliseconds. Keep this explicit: 11000 means 11 seconds.
+     * Raad/Rizgar timing exports have existed in both second-based
+     * and millisecond-based forms. Do not hard-code one unit: infer
+     * the unit from the magnitude of the complete timing track.
+     * A Fatiha-like track reaching 40+ seconds cannot be milliseconds
+     * if its largest raw value is only around 40.
      */
+    const rawTimingValues = rows
+      .flatMap(row => [
+        Number(row[1]),
+        endColumnPresent ? Number(row[2]) : NaN
+      ])
+      .filter(
+        value =>
+          Number.isFinite(value) &&
+          value >= 0
+      );
+
+    const maxRawTiming =
+      rawTimingValues.length
+        ? Math.max(...rawTimingValues)
+        : 0;
+
+    const timingUnit:
+      | 'seconds'
+      | 'milliseconds' =
+      maxRawTiming >= 1000
+        ? 'milliseconds'
+        : 'seconds';
+
     const toSeconds = (value: number) => {
       if (!Number.isFinite(value)) return 0;
-      return value / 1000;
+      return timingUnit === 'milliseconds'
+        ? value / 1000
+        : value;
     };
 
     const points = rows
@@ -423,6 +451,20 @@ const loadGaplessTiming = async (
   } catch (error) {
     console.error('Gapless timing DB error:', error);
 
+    /*
+     * Raad/Rizgar are exact gapless readers. A silence estimate is
+     * not a valid substitute for their real timing DB because it can
+     * make the audio and green highlight disagree. Keep the failure
+     * explicit so the same exact pipeline is used for both readers.
+     */
+    if (
+      reciter.id === 'raad_kurdi' ||
+      reciter.id === 'rizgar_kurdi'
+    ) {
+      gaplessTimingCache[cacheKey] = null;
+      return null;
+    }
+
     const fallbackRanges =
       fallbackAudioUrl && fallbackAyahCount
         ? await getSilenceBasedRanges(
@@ -468,12 +510,21 @@ const resolveGaplessTimingAtTime = (
   }
 
   /*
-   * Never guess an ayah when the playback position is outside the
-   * timing ranges. Returning the first/last ayah here can jump the
-   * green highlight to a completely unrelated verse when the audio
-   * and timing source are not aligned.
+   * Small gaps can exist between exported ayah boundaries. During
+   * those gaps, keep the highlight on the most recently started ayah
+   * instead of making the green highlight disappear while audio is
+   * still playing. Never jump forward to an ayah that has not started.
    */
-  return null;
+  let latest: Mp3QuranTiming | null = null;
+  for (const item of timings) {
+    if (currentTime >= item.start_time) {
+      latest = item;
+    } else {
+      break;
+    }
+  }
+
+  return latest;
 };
 
 const manualTimingCache: Record<
