@@ -976,7 +976,6 @@ async function fetchGaplessTimingFromDb(
     let ayahColumn: string | null = null;
     let startColumn: string | null = null;
     let endColumn: string | null = null;
-    let inferredSurah: number | null = null;
 
     const findColumn = (
       columns: string[],
@@ -1047,7 +1046,7 @@ async function fetchGaplessTimingFromDb(
         // Some gapless databases store one table per surah and therefore
         // do not repeat a surah column in every row. Infer the surah from
         // the table name when possible.
-        const tableNumberMatch = tableName.match(/(?:^|[^0-9])(\\d{1,3})(?:[^0-9]|$)/);
+        const tableNumberMatch = tableName.match(/(?:^|[^0-9])(\d{1,3})(?:[^0-9]|$)/);
         const tableNumber = tableNumberMatch
           ? Number(tableNumberMatch[1])
           : null;
@@ -1058,7 +1057,6 @@ async function fetchGaplessTimingFromDb(
           ayahColumn = foundAyah;
           startColumn = foundStart;
           endColumn = foundEnd;
-          inferredSurah = foundSurah ? null : tableNumber;
           break;
         }
       }
@@ -1066,7 +1064,6 @@ async function fetchGaplessTimingFromDb(
 
     if (
       !timingTable ||
-      !surahColumn ||
       !ayahColumn ||
       !startColumn
     ) {
