@@ -164,6 +164,14 @@ const loadGaplessTiming = async (
 
     const bytes = await gaplessDbPromiseCache[reciter.id];
     if (!bytes) {
+      if (
+        reciter.id === 'raad_kurdi' ||
+        reciter.id === 'rizgar_kurdi'
+      ) {
+        gaplessTimingCache[cacheKey] = null;
+        return null;
+      }
+
       const fallbackRanges =
         fallbackAudioUrl && fallbackAyahCount
           ? await getSilenceBasedRanges(
@@ -384,6 +392,14 @@ const loadGaplessTiming = async (
     if (timings.length) {
       gaplessTimingCache[cacheKey] = timings;
       return timings;
+    }
+
+    if (
+      reciter.id === 'raad_kurdi' ||
+      reciter.id === 'rizgar_kurdi'
+    ) {
+      gaplessTimingCache[cacheKey] = null;
+      return null;
     }
 
     const fallbackRanges =
@@ -1993,18 +2009,21 @@ export const MushafPageView: React.FC<
           timings?.find(item => item.ayah === ayahNumber) ?? null;
 
         /*
-         * Every Kurdish gapless reciter must use timing belonging to
-         * the same audio file. Never fall back to another reciter's
-         * timing or silently seek to the beginning of the surah.
-         */
-        // Timing is an enhancement, not a prerequisite for playback.
-        // If the DB is unavailable or its schema is different, still play
-        // the exact surah MP3 from the selected Kurdish reciter.
-        return {
-          url,
-          startTime: timing?.start_time,
-          endTime: timing?.end_time
-        };
+       * Raad/Rizgar gapless playback is timing-backed by design.
+       * Never silently start from ayah 1 when a selected ayah
+       * has no DB boundary.
+       */
+      if (!timing) {
+        throw new Error(
+          `کاتی ڕاستەقینەی ${reciter.name} بۆ ${surahNumber}:${ayahNumber} نەدۆزرایەوە.`
+        );
+      }
+
+      return {
+        url,
+        startTime: timing.start_time,
+        endTime: timing.end_time
+      };
       }
       /*
        * ===============================================
@@ -3623,10 +3642,9 @@ export const MushafPageView: React.FC<
           selectedReciter.audioSource ===
           'gapless'
         ) {
-          // The Raad MP3 is a whole-surah file. If the timing DB
-          // failed to load, start from the beginning rather than
-          // accidentally continuing from the previous seek position.
-          audio.currentTime = 0;
+          throw new Error(
+            'کاتی دەستپێکی ئایەت بۆ دەنگی gapless نەدۆزرایەوە.'
+          );
         } else if (
           selectedReciter.audioSource ===
           'mp3quran'
@@ -4035,9 +4053,9 @@ export const MushafPageView: React.FC<
           selectedReciter.audioSource ===
           'gapless'
         ) {
-          // If the timing DB is unavailable, start the surah MP3
-          // from the beginning rather than reusing an old position.
-          audio.currentTime = 0;
+          throw new Error(
+            'کاتی دەستپێکی ئایەت بۆ دەنگی gapless نەدۆزرایەوە.'
+          );
         }
 
         await audio.play();
