@@ -3694,9 +3694,11 @@ export const MushafPageView: React.FC<
           selectedReciter.audioSource ===
           'gapless'
         ) {
-          throw new Error(
-            'کاتی دەستپێکی ئایەت بۆ دەنگی gapless نەدۆزرایەوە.'
-          );
+          /*
+           * If timing is unavailable, keep the MP3 playable instead of
+           * failing the entire request. When timing is available,
+           * source.startTime above already seeks to the exact ayah.
+           */
         } else if (
           selectedReciter.audioSource ===
           'mp3quran'
