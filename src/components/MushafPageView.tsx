@@ -2041,15 +2041,9 @@ export const MushafPageView: React.FC<
          * the same audio file. Never fall back to another reciter's
          * timing or silently seek to the beginning of the surah.
          */
-        if (
-          reciter.category === 'kurdish' &&
-          !timing
-        ) {
-          throw new Error(
-            `کاتی ڕاستی ئەم قارییە نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
-          );
-        }
-
+        // Timing is an enhancement, not a prerequisite for playback.
+        // If the DB is unavailable or its schema is different, still play
+        // the exact surah MP3 from the selected Kurdish reciter.
         return {
           url,
           startTime: timing?.start_time,
