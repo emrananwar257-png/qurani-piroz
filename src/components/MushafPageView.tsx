@@ -201,7 +201,6 @@ const loadGaplessTiming = async (
     if (reciter.id === 'raad_kurdi' || reciter.id === 'rizgar_kurdi') {
       const quoteIdentifier = (value: string) =>
         `"${value.replace(/"/g, '""')}"`;
-
       const normalizeColumnName = (value: string) =>
         value.toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -211,31 +210,24 @@ const loadGaplessTiming = async (
            AND name NOT LIKE 'sqlite_%'
          ORDER BY name`
       );
-
       const tableNames = (tableResult[0]?.values ?? [])
         .map(row => String(row[0] ?? ''))
         .filter(Boolean);
 
-      let timingTable: string | null = null;
-      let surahColumn: string | null = null;
-      let ayahColumn: string | null = null;
-      let startColumn: string | null = null;
-      let endColumn: string | null = null;
-
-      const findColumn = (
-        columns: string[],
-        candidates: string[]
-      ) => {
-        const wanted = new Set(
-          candidates.map(normalizeColumnName)
-        );
-
-        return (
-          columns.find(column =>
-            wanted.has(normalizeColumnName(column))
-          ) ?? null
-        );
+      const findColumn = (columns: string[], candidates: string[]) => {
+        const wanted = new Set(candidates.map(normalizeColumnName));
+        return columns.find(column =>
+          wanted.has(normalizeColumnName(column))
+        ) ?? null;
       };
+
+      /*
+       * Same Raad-style contract for both Kurdish gapless reciters:
+       * one surah MP3 + the exact timing DB for that reciter.
+       * Scan every compatible table because releases can use either
+       * one table for all surahs or one table per surah.
+       */
+      const collectedRows: any[][] = [];
 
       for (const tableName of tableNames) {
         let info: any[];
@@ -252,103 +244,78 @@ const loadGaplessTiming = async (
           .filter(Boolean);
 
         const foundSurah = findColumn(columns, [
-          'sura',
-          'surah',
-          'suranumber',
-          'surahnumber',
-          'surah_number',
-          'chapter',
-          'chapternumber'
+          'sura','surah','suranumber','surahnumber','surah_number',
+          'surah_id','sura_id','chapter','chapternumber',
+          'chapter_number','chapter_id'
         ]);
-
         const foundAyah = findColumn(columns, [
-          'ayah',
-          'ayahnumber',
-          'ayah_number',
-          'versenumber',
-          'verse'
+          'ayah','aya','ayahnumber','ayah_number','ayah_id',
+          'verse','verse_number','versenumber'
         ]);
-
         const foundStart = findColumn(columns, [
-          'time',
-          'timems',
-          'timestamp',
-          'start',
-          'starttime',
-          'starttimems',
-          'start_time',
-          'from',
-          'begin'
+          'time','timems','timestamp','timestampms','start',
+          'starttime','starttimems','start_time','start_ms',
+          'from','begin','begin_time','position','offset'
         ]);
-
         const foundEnd = findColumn(columns, [
-          'end',
-          'endtime',
-          'endtimems',
-          'end_time',
-          'finish',
-          'finishtime'
+          'end','endtime','endtimems','end_time','end_ms',
+          'to','finish','finishtime','finish_time'
         ]);
 
-        // Some Kurdish timing DBs use one table per surah and omit
-        // the surah column entirely. In that case infer the surah
-        // number from the table name (001, 1, surah_1, etc.).
-        const tableNumberMatch = tableName.match(
-          /(?:^|[^0-9])(\\d{1,3})(?:[^0-9]|$)/
+        const match = tableName.match(
+          /(?:^|[^0-9])(\d{1,3})(?:[^0-9]|$)/
         );
-        const tableNumber = tableNumberMatch
-          ? Number(tableNumberMatch[1])
-          : null;
+        const tableNumber = match ? Number(match[1]) : null;
 
         if (
-          foundAyah &&
-          foundStart &&
-          (
-            !!foundSurah ||
-            tableNumber === surahNumber
-          )
+          !foundAyah ||
+          !foundStart ||
+          (!foundSurah && tableNumber !== surahNumber)
         ) {
-          timingTable = tableName;
-          surahColumn = foundSurah;
-          ayahColumn = foundAyah;
-          startColumn = foundStart;
-          endColumn = foundEnd;
-          break;
+          continue;
+        }
+
+        const selectedColumns = [
+          quoteIdentifier(foundAyah),
+          quoteIdentifier(foundStart),
+          ...(foundEnd ? [quoteIdentifier(foundEnd)] : [])
+        ].join(', ');
+
+        const whereClause = foundSurah
+          ? `WHERE ${quoteIdentifier(foundSurah)} = ${Number(surahNumber)}`
+          : '';
+
+        try {
+          const result = db.exec(
+            `SELECT ${selectedColumns}
+             FROM ${quoteIdentifier(tableName)}
+             ${whereClause}
+             ORDER BY ${quoteIdentifier(foundAyah)} ASC`
+          );
+          const values = result[0]?.values ?? [];
+          if (values.length) collectedRows.push(...values);
+        } catch {
+          // Continue with the next table.
         }
       }
 
-      if (
-        !timingTable ||
-        !ayahColumn ||
-        !startColumn
-      ) {
+      const seenAyahs = new Set<number>();
+      rows = collectedRows
+        .filter(row => {
+          const ayah = Number(row[0]);
+          if (!Number.isFinite(ayah) || seenAyahs.has(ayah)) return false;
+          seenAyahs.add(ayah);
+          return true;
+        })
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
+
+      if (!rows.length) {
         throw new Error(
-          `${reciter.name} timing DB: timing table/columns not found`
+          `${reciter.name} timing DB: no timing rows for surah ${surahNumber}`
         );
       }
 
-      endColumnPresent = !!endColumn;
-
-      const selectedColumns = [
-        quoteIdentifier(ayahColumn),
-        quoteIdentifier(startColumn),
-        ...(endColumn
-          ? [quoteIdentifier(endColumn)]
-          : [])
-      ].join(', ');
-
-      const whereClause = surahColumn
-        ? `WHERE ${quoteIdentifier(surahColumn)} = ${Number(surahNumber)}`
-        : '';
-
-      const result = db.exec(
-        `SELECT ${selectedColumns}
-         FROM ${quoteIdentifier(timingTable)}
-         ${whereClause}
-         ORDER BY ${quoteIdentifier(ayahColumn)} ASC`
-      );
-
-      rows = result[0]?.values ?? [];
+      endColumnPresent = rows.some(row => row.length >= 3);
     }
 
     /*
