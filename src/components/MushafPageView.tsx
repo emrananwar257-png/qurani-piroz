@@ -3539,7 +3539,6 @@ export const MushafPageView: React.FC<
             }
           }
         } else if (
-        } else if (
           selectedReciter.audioSource ===
           'mp3quran'
         ) {
