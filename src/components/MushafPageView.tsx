@@ -1564,6 +1564,37 @@ export const MushafPageView: React.FC<
         return null;
       }
 
+      /*
+       * Peshawa's MP3Quran source is explicitly moshaf/read 268.
+       * This is the exact moshaf whose server is:
+       * server16.mp3quran.net/peshawa/Rewayat-Hafs-A-n-Assem/
+       * Using a fixed read ID prevents timing data from another
+       * Peshawa moshaf from ever being selected by fuzzy matching.
+       */
+      if (
+        reciter.id ===
+        'peshawa_kurdi'
+      ) {
+        const exactPeshawaRead: Mp3QuranRead = {
+          id: 268,
+          server:
+            reciter.audioBaseUrl,
+          surah_total: 114,
+          surah_list:
+            Array.from(
+              { length: 114 },
+              (_, index) =>
+                index + 1
+            ).join(',')
+        };
+
+        mp3ReadCacheRef.current[
+          cacheKey
+        ] = exactPeshawaRead;
+
+        return exactPeshawaRead;
+      }
+
       try {
         const response =
           await fetch(
@@ -1949,6 +1980,20 @@ export const MushafPageView: React.FC<
               item.ayah ===
               ayahNumber
           );
+
+        /*
+         * Peshawa is timing-backed. Never silently play from the
+         * wrong position if its exact timing row is unavailable.
+         */
+        if (
+          reciter.id ===
+            'peshawa_kurdi' &&
+          !timing
+        ) {
+          throw new Error(
+            `Peshawa timing نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
+          );
+        }
 
         /*
          * تێبینی: ئەگەر کاتی وردی ئایەتەکە نەدۆزرایەوە
