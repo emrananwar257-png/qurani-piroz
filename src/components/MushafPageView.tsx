@@ -2026,6 +2026,25 @@ export const MushafPageView: React.FC<
         reciter.audioSource ===
         'mp3quran'
       ) {
+        const isOfficialMp3QuranKurdish =
+          reciter.category === 'kurdish' &&
+          (reciter.id === 'peshawa_kurdi' ||
+            reciter.id === 'ramazan_shukur');
+
+        const isCustomKurdishAudio =
+          reciter.category === 'kurdish' &&
+          !isOfficialMp3QuranKurdish;
+
+        /*
+         * Each Kurdish reciter gets timing from THEIR OWN audio:
+         *
+         * - Peshawa/Ramazan: official MP3Quran timing for their own read.
+         * - Custom GitHub Kurdish recordings: timing is derived from the
+         *   exact same surah MP3, never from another reciter.
+         *
+         * This is deliberately separate so a missing MP3Quran record
+         * cannot block or mis-time a custom Kurdish recording.
+         */
         const manualTimings =
           await loadManualTiming(
             reciter.id,
@@ -2033,20 +2052,22 @@ export const MushafPageView: React.FC<
           );
 
         let timings =
-          manualTimings ??
-          (await getMp3QuranTiming(
-            reciter,
-            surahNumber
-          ));
+          manualTimings ?? [];
 
-        /*
-         * Kurdish custom GitHub audio does not have a safe reason to
-         * use another source's timing. If its own timing is missing,
-         * use the exact same surah MP3 as the timing input.
-         */
         if (
           !timings.length &&
-          reciter.category === 'kurdish'
+          isOfficialMp3QuranKurdish
+        ) {
+          timings =
+            await getMp3QuranTiming(
+              reciter,
+              surahNumber
+            );
+        }
+
+        if (
+          !timings.length &&
+          isCustomKurdishAudio
         ) {
           const timingUrl =
             makeMp3QuranSurahUrl(
@@ -2087,11 +2108,13 @@ export const MushafPageView: React.FC<
           );
 
         /*
-         * Peshawa is timing-backed. Never silently play from the
-         * wrong position if its exact timing row is unavailable.
+         * Official timing-backed Kurdish sources must have their own
+         * timing row. Custom Kurdish recordings are still allowed to
+         * play when timing analysis is unavailable; they simply do not
+         * receive a guessed seek position.
          */
         if (
-          reciter.category === 'kurdish' &&
+          isOfficialMp3QuranKurdish &&
           !timing
         ) {
           throw new Error(
