@@ -351,39 +351,69 @@ const loadGaplessTiming = async (
       rows = result[0]?.values ?? [];
     }
 
+    /*
+     * Kurdish release databases are not guaranteed to use one time unit.
+     * Some exports store integer milliseconds (11000 = 11s), while
+     * alignment exports can store seconds directly (11 = 11s).
+     *
+     * The old loader always divided by 1000. If Rizgar's DB is already
+     * in seconds, that turns 11s into 0.011s, which makes every clicked
+     * ayah seek almost to the beginning and breaks live highlighting.
+     */
+    const rawTimingValues = rows
+      .flatMap(row => [
+        Number(row[1]),
+        endColumnPresent ? Number(row[2]) : NaN
+      ])
+      .filter(
+        value =>
+          Number.isFinite(value) &&
+          value >= 0
+      );
+
+    const maxRawTiming =
+      rawTimingValues.length
+        ? Math.max(...rawTimingValues)
+        : 0;
+
+    const timingUnit:
+      | 'seconds'
+      | 'milliseconds' =
+      maxRawTiming > 1000
+        ? 'milliseconds'
+        : 'seconds';
+
     const toSeconds = (value: number) => {
       if (!Number.isFinite(value)) {
         return 0;
       }
 
-      /*
-       * These Kurdish release DBs store timing points in milliseconds.
-       * Keep the conversion explicit so short surahs/early ayahs
-       * are not mistaken for seconds.
-       */
-      return value / 1000;
+      return timingUnit === 'milliseconds'
+        ? value / 1000
+        : value;
     };
 
     const points = rows
       .map(row => ({
         ayah: Number(row[0]),
-        timeMs: Number(row[1]),
-        endTimeMs: endColumnPresent
-          ? Number(row[2])
-          : null
+        rawStartTime: Number(row[1]),
+        rawEndTime:
+          endColumnPresent
+            ? Number(row[2])
+            : null
       }))
       .filter(
         row =>
           Number.isFinite(row.ayah) &&
-          Number.isFinite(row.timeMs)
+          Number.isFinite(row.rawStartTime)
       )
       .map(row => ({
-        ...row,
-        timeMs: toSeconds(row.timeMs),
+        ayah: row.ayah,
+        timeMs: toSeconds(row.rawStartTime),
         endTimeMs:
-          row.endTimeMs !== null &&
-          Number.isFinite(row.endTimeMs)
-            ? toSeconds(row.endTimeMs)
+          row.rawEndTime !== null &&
+          Number.isFinite(row.rawEndTime)
+            ? toSeconds(row.rawEndTime)
             : null
       }));
 
