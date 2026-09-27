@@ -226,7 +226,10 @@ const loadGaplessTiming = async (
         columns: string[],
         candidates: string[]
       ) => {
-        const wanted = new Set(candidates);
+        const wanted = new Set(
+          candidates.map(normalizeColumnName)
+        );
+
         return (
           columns.find(column =>
             wanted.has(normalizeColumnName(column))
@@ -235,9 +238,14 @@ const loadGaplessTiming = async (
       };
 
       for (const tableName of tableNames) {
-        const info = db.exec(
-          `PRAGMA table_info(${quoteIdentifier(tableName)})`
-        );
+        let info: any[];
+        try {
+          info = db.exec(
+            `PRAGMA table_info(${quoteIdentifier(tableName)})`
+          );
+        } catch {
+          continue;
+        }
 
         const columns = (info[0]?.values ?? [])
           .map(row => String(row[1] ?? ''))
@@ -247,29 +255,59 @@ const loadGaplessTiming = async (
           'sura',
           'surah',
           'suranumber',
-          'surahnumber'
+          'surahnumber',
+          'surah_number',
+          'chapter',
+          'chapternumber'
         ]);
+
         const foundAyah = findColumn(columns, [
           'ayah',
           'ayahnumber',
+          'ayah_number',
           'versenumber',
           'verse'
         ]);
+
         const foundStart = findColumn(columns, [
           'time',
           'timems',
           'timestamp',
           'start',
           'starttime',
-          'starttimems'
+          'starttimems',
+          'start_time',
+          'from',
+          'begin'
         ]);
+
         const foundEnd = findColumn(columns, [
           'end',
           'endtime',
-          'endtimems'
+          'endtimems',
+          'end_time',
+          'finish',
+          'finishtime'
         ]);
 
-        if (foundSurah && foundAyah && foundStart) {
+        // Some Kurdish timing DBs use one table per surah and omit
+        // the surah column entirely. In that case infer the surah
+        // number from the table name (001, 1, surah_1, etc.).
+        const tableNumberMatch = tableName.match(
+          /(?:^|[^0-9])(\\d{1,3})(?:[^0-9]|$)/
+        );
+        const tableNumber = tableNumberMatch
+          ? Number(tableNumberMatch[1])
+          : null;
+
+        if (
+          foundAyah &&
+          foundStart &&
+          (
+            !!foundSurah ||
+            tableNumber === surahNumber
+          )
+        ) {
           timingTable = tableName;
           surahColumn = foundSurah;
           ayahColumn = foundAyah;
@@ -281,7 +319,6 @@ const loadGaplessTiming = async (
 
       if (
         !timingTable ||
-        !surahColumn ||
         !ayahColumn ||
         !startColumn
       ) {
@@ -300,16 +337,19 @@ const loadGaplessTiming = async (
           : [])
       ].join(', ');
 
+      const whereClause = surahColumn
+        ? `WHERE ${quoteIdentifier(surahColumn)} = ${Number(surahNumber)}`
+        : '';
+
       const result = db.exec(
         `SELECT ${selectedColumns}
          FROM ${quoteIdentifier(timingTable)}
-         WHERE ${quoteIdentifier(surahColumn)} = ${Number(surahNumber)}
+         ${whereClause}
          ORDER BY ${quoteIdentifier(ayahColumn)} ASC`
       );
 
       rows = result[0]?.values ?? [];
-    } else {
-      const result = db.exec(
+
         `SELECT ayah, time
          FROM timings
          WHERE sura = ${Number(surahNumber)}
