@@ -3619,10 +3619,9 @@ export const MushafPageView: React.FC<
           'mp3quran'
         ) {
           /*
-           * کاتی ڕاستەقینە بۆ ئەم قارییە بەردەست نییە.
-           * لەبەر داواکاری بەکارهێنەر، لێرەدا هیچ
-           * هایلایتێکی هەندازەکراو ناکەین — تەنها
-           * دەنگی سورەتەکە دەخوێنینەوە بەبێ هایلایت.
+           * Kurdish MP3Quran/GitHub sources are timing-backed above.
+           * If this branch is reached, the source has no start boundary;
+           * do not invent a seek position.
            */
         }
 
