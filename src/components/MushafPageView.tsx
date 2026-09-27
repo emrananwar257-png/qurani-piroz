@@ -3415,6 +3415,65 @@ export const MushafPageView: React.FC<
                   timings
                 }
               : null;
+        } else if (
+          selectedReciter.audioSource ===
+          'mp3quran'
+        ) {
+          let timings =
+            await loadManualTiming(
+              selectedReciter.id,
+              a.surahNumber
+            );
+
+          timings =
+            timings ??
+            (await getMp3QuranTiming(
+              selectedReciter,
+              a.surahNumber
+            ));
+
+          if (
+            !timings.length &&
+            selectedReciter.category === 'kurdish'
+          ) {
+            const timingUrl =
+              selectedReciter.audioBaseUrl
+                ? `${selectedReciter.audioBaseUrl.replace(/\/+$/, '')}/${String(a.surahNumber).padStart(3, '0')}.mp3`
+                : undefined;
+
+            const surahInfo =
+              surahsList.find(
+                s => s.number === a.surahNumber
+              );
+
+            const fallbackRanges =
+              timingUrl && surahInfo?.ayahs
+                ? await getSilenceBasedRanges(
+                    selectedReciter.id,
+                    a.surahNumber,
+                    timingUrl,
+                    surahInfo.ayahs
+                  )
+                : null;
+
+            timings =
+              fallbackRanges?.map(
+                range => ({
+                  ayah: range.ayah,
+                  start_time: range.start,
+                  end_time: range.end
+                })
+              ) ?? [];
+          }
+
+          gaplessActiveTimingRef.current =
+            timings.length
+              ? {
+                  surahNumber:
+                    a.surahNumber,
+                  timings
+                }
+              : null;
         }
 
         if (
