@@ -2049,32 +2049,33 @@ export const MushafPageView: React.FC<
         const surahInfo =
           surahsList.find(s => s.number === surahNumber);
 
-        const timings = await loadGaplessTiming(
-          reciter,
-          surahNumber,
-          url,
-          surahInfo?.ayahs
-        );
+        /*
+         * Audio must never depend on the timing DB loading successfully.
+         * The MP3 is the primary source; timing is an enhancement used
+         * for exact ayah seek/highlight when the local SQLite DB is ready.
+         * This also keeps playback working on browsers where sql.js/DB
+         * loading is temporarily blocked or slow.
+         */
+        let timings: Mp3QuranTiming[] | null = null;
+        try {
+          timings = await loadGaplessTiming(
+            reciter,
+            surahNumber,
+            url,
+            surahInfo?.ayahs
+          );
+        } catch (error) {
+          console.warn('Gapless timing unavailable; audio will still play:', error);
+        }
 
         const timing =
           timings?.find(item => item.ayah === ayahNumber) ?? null;
 
-        /*
-       * Raad/Rizgar gapless playback is timing-backed by design.
-       * Never silently start from ayah 1 when a selected ayah
-       * has no DB boundary.
-       */
-      if (!timing) {
-        throw new Error(
-          `کاتی ڕاستەقینەی ${reciter.name} بۆ ${surahNumber}:${ayahNumber} نەدۆزرایەوە.`
-        );
-      }
-
-      return {
-        url,
-        startTime: timing.start_time,
-        endTime: timing.end_time
-      };
+        return {
+          url,
+          startTime: timing?.start_time,
+          endTime: timing?.end_time
+        };
       }
       /*
        * ===============================================
