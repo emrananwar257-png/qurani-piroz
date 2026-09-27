@@ -28,7 +28,6 @@ const MP3QURAN_API_BASE =
 const RIZGAR_RECITER_ID = 'rizgar_kurdi';
 const RIZGAR_AUDIO_BASE =
   'https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/rzgar_kurdi_mutasil/';
-const RIZGAR_TIMING_BASE = '/ayah-timings/rizgar_kurdi';
 
 const RECITERS_CACHE_KEY =
   'quran_dynamic_kurdish_reciters_v2';
@@ -917,17 +916,36 @@ async function fetchGaplessTimingFromDb(
     );
   }
 
-  const response = await fetch(config.timingDbUrl, {
-    cache: 'force-cache',
-  });
+  const localUrl =
+    `${import.meta.env.BASE_URL}gapless-timing/${reciterId}.db`;
 
-  if (!response.ok) {
-    throw new Error(
-      `Gapless timing DB (${reciterId}): ${response.status}`,
-    );
+  const candidates = [
+    localUrl,
+    config.timingDbUrl,
+  ];
+
+  let buffer: ArrayBuffer | null = null;
+
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, {
+        cache: 'force-cache',
+      });
+
+      if (response.ok) {
+        buffer = await response.arrayBuffer();
+        break;
+      }
+    } catch {
+      // Try the next timing DB source.
+    }
   }
 
-  const buffer = await response.arrayBuffer();
+  if (!buffer) {
+    throw new Error(
+      `Gapless timing DB نەکرا بار بکرێت بۆ ${reciterId}.`,
+    );
+  }
 
   const SQL = await initSqlJs({
     locateFile: () => SQL_WASM_URL,
