@@ -398,11 +398,13 @@ const resolveGaplessTimingAtTime = (
     }
   }
 
-  if (tMs < timings[0].start_time * 1000) {
-    return timings[0];
-  }
-
-  return timings[timings.length - 1];
+  /*
+   * Never guess an ayah when the playback position is outside the
+   * timing ranges. Returning the first/last ayah here can jump the
+   * green highlight to a completely unrelated verse when the audio
+   * and timing source are not aligned.
+   */
+  return null;
 };
 
 const manualTimingCache: Record<
@@ -1259,17 +1261,11 @@ const normalizeTimingValue = (
   }
 
   /*
-   * MP3Quran usually returns milliseconds.
-   * Some endpoints/versions may return seconds.
-   *
-   * Large values => milliseconds.
-   * Small values => seconds.
+   * MP3Quran's ayat_timing endpoint returns start_time/end_time
+   * in milliseconds. Do not guess the unit from the numeric size:
+   * a valid value such as 5587 means 5.587 seconds.
    */
-  if (value > 10000) {
-    return value / 1000;
-  }
-
-  return value;
+  return value / 1000;
 };
 
 /* =========================================================
@@ -1595,7 +1591,11 @@ export const MushafPageView: React.FC<
             reciter.audioBaseUrl
           );
 
-        let found:
+        let exactFound:
+          | Mp3QuranRead
+          | null = null;
+
+        let fallbackFound:
           | Mp3QuranRead
           | null = null;
 
@@ -1627,20 +1627,6 @@ export const MushafPageView: React.FC<
               continue;
             }
 
-            const matches =
-              localBase ===
-                remoteServer ||
-              localBase.includes(
-                remoteServer
-              ) ||
-              remoteServer.includes(
-                localBase
-              );
-
-            if (!matches) {
-              continue;
-            }
-
             const id =
               Number(moshaf?.id);
 
@@ -1650,7 +1636,7 @@ export const MushafPageView: React.FC<
               continue;
             }
 
-            found = {
+            const candidate: Mp3QuranRead = {
               id,
               server,
               surah_total:
@@ -1664,13 +1650,44 @@ export const MushafPageView: React.FC<
                 )
             };
 
-            break;
+            /*
+             * Prefer the exact audio folder used by the app.
+             * Only use the old contains/substring matching as a
+             * fallback, because choosing a different moshaf's
+             * timing data can desynchronize the highlight from audio.
+             */
+            if (
+              localBase ===
+              remoteServer
+            ) {
+              exactFound = candidate;
+              break;
+            }
+
+            const matches =
+              localBase.includes(
+                remoteServer
+              ) ||
+              remoteServer.includes(
+                localBase
+              );
+
+            if (
+              matches &&
+              !fallbackFound
+            ) {
+              fallbackFound = candidate;
+            }
           }
 
-          if (found) {
+          if (exactFound) {
             break;
           }
         }
+
+        const found =
+          exactFound ??
+          fallbackFound;
 
         mp3ReadCacheRef.current[
           cacheKey
@@ -3570,30 +3587,6 @@ export const MushafPageView: React.FC<
           /*
            * Use the exact MP3Quran ayah timing for page playback
            * as well, so the highlight moves with the spoken ayah.
-           */
-          const timings =
-            await getMp3QuranTiming(
-              selectedReciter,
-              ayah.surahNumber
-            );
-
-          gaplessActiveTimingRef.current =
-            timings.length
-              ? {
-                  surahNumber:
-                    ayah.surahNumber,
-                  timings
-                }
-              : null;
-        } else if (
-          selectedReciter.audioSource ===
-          'mp3quran'
-        ) {
-          /*
-           * Peshawa and other MP3Quran reciters also have
-           * exact per-ayah start/end timing. Keep the same
-           * timing object active so the green highlight can
-           * follow the audio frame-by-frame, just like Raad.
            */
           const timings =
             await getMp3QuranTiming(
