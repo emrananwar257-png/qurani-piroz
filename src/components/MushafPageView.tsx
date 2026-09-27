@@ -3469,6 +3469,10 @@ export const MushafPageView: React.FC<
             a.numberInSurah
           );
 
+        let fallbackStartTime:
+          | number
+          | undefined;
+
         if (
           selectedReciter.audioSource ===
           'gapless'
@@ -3499,6 +3503,42 @@ export const MushafPageView: React.FC<
                   timings
                 }
               : null;
+
+          // DB is authoritative; if it is unavailable, use a timeline
+          // derived from this exact surah MP3 so the highlight still moves.
+          if (!timings?.length && surahInfo?.ayahs) {
+            const audio = audioRef.current;
+            if (audio) {
+              if (audio.readyState < 1) {
+                await new Promise<void>((resolve, reject) => {
+                  const onLoaded = () => { cleanup(); resolve(); };
+                  const onError = () => { cleanup(); reject(new Error('Audio metadata load failed')); };
+                  const cleanup = () => {
+                    audio.removeEventListener('loadedmetadata', onLoaded);
+                    audio.removeEventListener('error', onError);
+                  };
+                  audio.addEventListener('loadedmetadata', onLoaded);
+                  audio.addEventListener('error', onError);
+                });
+              }
+              const counts = await getSurahWordCounts(a.surahNumber);
+              const ranges = buildEstimatedRanges(
+                counts.slice(0, surahInfo.ayahs),
+                audio.duration
+              );
+              if (ranges.length) {
+                estimatedTimingRef.current = {
+                  reciterId: selectedReciter.id,
+                  surahNumber: a.surahNumber,
+                  ranges
+                };
+                fallbackStartTime = ranges.find(
+                  range => range.ayah === a.numberInSurah
+                )?.start;
+              }
+            }
+          }
+        } else if (
         } else if (
           selectedReciter.audioSource ===
           'mp3quran'
@@ -3609,8 +3649,12 @@ export const MushafPageView: React.FC<
         /*
          * MP3Quran segment (real timing).
          */
+        const playbackStartTime =
+          source.startTime ??
+          fallbackStartTime;
+
         if (
-          source.startTime !==
+          playbackStartTime !==
           undefined
         ) {
           await new Promise<void>(
@@ -3689,16 +3733,12 @@ export const MushafPageView: React.FC<
           }
 
           audio.currentTime =
-            source.startTime;
+            playbackStartTime;
         } else if (
           selectedReciter.audioSource ===
           'gapless'
         ) {
-          /*
-           * If timing is unavailable, keep the MP3 playable instead of
-           * failing the entire request. When timing is available,
-           * source.startTime above already seeks to the exact ayah.
-           */
+          /* No DB and no fallback timeline: keep the MP3 playable. */
         } else if (
           selectedReciter.audioSource ===
           'mp3quran'
@@ -3994,6 +4034,49 @@ export const MushafPageView: React.FC<
          * from ayah to ayah.
          */
         let pageAudioEndTime = source.endTime ?? null;
+        let pageFallbackStartTime:
+          | number
+          | undefined;
+
+        if (
+          selectedReciter.audioSource === 'gapless' &&
+          !gaplessActiveTimingRef.current?.timings.length
+        ) {
+          const surahInfo =
+            surahsList.find(
+              s => s.number === ayah.surahNumber
+            );
+          const audioForFallback = audioRef.current;
+          if (surahInfo?.ayahs && audioForFallback) {
+            if (audioForFallback.readyState < 1) {
+              await new Promise<void>((resolve, reject) => {
+                const onLoaded = () => { cleanup(); resolve(); };
+                const onError = () => { cleanup(); reject(new Error('Audio metadata load failed')); };
+                const cleanup = () => {
+                  audioForFallback.removeEventListener('loadedmetadata', onLoaded);
+                  audioForFallback.removeEventListener('error', onError);
+                };
+                audioForFallback.addEventListener('loadedmetadata', onLoaded);
+                audioForFallback.addEventListener('error', onError);
+              });
+            }
+            const counts = await getSurahWordCounts(ayah.surahNumber);
+            const ranges = buildEstimatedRanges(
+              counts.slice(0, surahInfo.ayahs),
+              audioForFallback.duration
+            );
+            if (ranges.length) {
+              estimatedTimingRef.current = {
+                reciterId: selectedReciter.id,
+                surahNumber: ayah.surahNumber,
+                ranges
+              };
+              pageFallbackStartTime = ranges.find(
+                range => range.ayah === ayah.numberInSurah
+              )?.start;
+            }
+          }
+        }
 
         if (
           (selectedReciter.audioSource === 'gapless' ||
@@ -4022,8 +4105,12 @@ export const MushafPageView: React.FC<
           requestId
         };
 
+        const pagePlaybackStartTime =
+          source.startTime ??
+          pageFallbackStartTime;
+
         if (
-          source.startTime !==
+          pagePlaybackStartTime !==
           undefined
         ) {
           await new Promise<void>(
@@ -4102,14 +4189,12 @@ export const MushafPageView: React.FC<
           }
 
           audio.currentTime =
-            source.startTime;
+            pagePlaybackStartTime;
         } else if (
           selectedReciter.audioSource ===
           'gapless'
         ) {
-          throw new Error(
-            'کاتی دەستپێکی ئایەت بۆ دەنگی gapless نەدۆزرایەوە.'
-          );
+          /* DB timing unavailable: keep audio playable. */
         }
 
         await audio.play();
