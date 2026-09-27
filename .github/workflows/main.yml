@@ -29,15 +29,18 @@ jobs:
           node-version: 20
       - name: Install dependencies
         run: npm install
-      - name: Download Raad timing database
+            - name: Download Kurdish gapless timing databases
         run: |
           mkdir -p public/gapless-timing
           curl -L --fail --retry 3 \
             "https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/Raad/raad_al_kurdi.db" \
             -o public/gapless-timing/raad_kurdi.db
+          curl -L --fail --retry 3 \
+            "https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/rzgar_kurdi_mutasil/rzgar_kurdi_mutasil.db" \
+            -o public/gapless-timing/rizgar_kurdi.db
 
       - name: Build
-        # Build after bundling the Raad timing DB for deterministic highlighting.
+        # Build after bundling the Raad and Rizgar timing DBs for deterministic highlighting.
         # Pages deployment trigger.
         run: npm run build
       - name: Setup Pages
