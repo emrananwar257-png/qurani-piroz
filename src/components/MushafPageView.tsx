@@ -130,7 +130,9 @@ const gaplessDbPromiseCache: Record<string, Promise<Uint8Array | null>> = {};
 
 const loadGaplessTiming = async (
   reciter: ReciterItem,
-  surahNumber: number
+  surahNumber: number,
+  fallbackAudioUrl?: string,
+  fallbackAyahCount?: number
 ): Promise<Mp3QuranTiming[] | null> => {
   if (!reciter.timingDbUrl) return null;
 
@@ -162,8 +164,24 @@ const loadGaplessTiming = async (
 
     const bytes = await gaplessDbPromiseCache[reciter.id];
     if (!bytes) {
-      gaplessTimingCache[cacheKey] = null;
-      return null;
+      const fallbackRanges =
+        fallbackAudioUrl && fallbackAyahCount
+          ? await getSilenceBasedRanges(
+              reciter.id,
+              surahNumber,
+              fallbackAudioUrl,
+              fallbackAyahCount
+            )
+          : null;
+
+      const fallbackTimings = fallbackRanges?.map(range => ({
+        ayah: range.ayah,
+        start_time: range.start,
+        end_time: range.end
+      })) ?? null;
+
+      gaplessTimingCache[cacheKey] = fallbackTimings;
+      return fallbackTimings;
     }
 
     const SQL = await initSqlJs({ locateFile: () => sqlWasmUrl });
@@ -366,12 +384,51 @@ const loadGaplessTiming = async (
     }
 
     db.close();
-    gaplessTimingCache[cacheKey] = timings.length ? timings : null;
-    return gaplessTimingCache[cacheKey];
+
+    if (timings.length) {
+      gaplessTimingCache[cacheKey] = timings;
+      return timings;
+    }
+
+    const fallbackRanges =
+      fallbackAudioUrl && fallbackAyahCount
+        ? await getSilenceBasedRanges(
+            reciter.id,
+            surahNumber,
+            fallbackAudioUrl,
+            fallbackAyahCount
+          )
+        : null;
+
+    const fallbackTimings = fallbackRanges?.map(range => ({
+      ayah: range.ayah,
+      start_time: range.start,
+      end_time: range.end
+    })) ?? null;
+
+    gaplessTimingCache[cacheKey] = fallbackTimings;
+    return fallbackTimings;
   } catch (error) {
     console.error('Gapless timing DB error:', error);
-    gaplessTimingCache[cacheKey] = null;
-    return null;
+
+    const fallbackRanges =
+      fallbackAudioUrl && fallbackAyahCount
+        ? await getSilenceBasedRanges(
+            reciter.id,
+            surahNumber,
+            fallbackAudioUrl,
+            fallbackAyahCount
+          )
+        : null;
+
+    const fallbackTimings = fallbackRanges?.map(range => ({
+      ayah: range.ayah,
+      start_time: range.start,
+      end_time: range.end
+    })) ?? null;
+
+    gaplessTimingCache[cacheKey] = fallbackTimings;
+    return fallbackTimings;
   }
 };
 const resolveGaplessTimingAtTime = (
@@ -1915,23 +1972,6 @@ export const MushafPageView: React.FC<
        * timing database used to locate each ayah exactly.
        */
       if (reciter.audioSource === 'gapless') {
-        const timings = await loadGaplessTiming(reciter, surahNumber);
-        const timing = timings?.find(item => item.ayah === ayahNumber);
-
-        /*
-         * Raad must never fall back to the beginning of the surah when
-         * its exact DB timing is unavailable.  Doing so makes a long
-         * press on an ayah play the wrong passage.
-         */
-        if (
-          reciter.id === 'raad_kurdi' &&
-          !timing
-        ) {
-          throw new Error(
-            `Raad timing نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
-          );
-        }
-
         const base = reciter.audioBaseUrl?.endsWith('/')
           ? reciter.audioBaseUrl
           : reciter.audioBaseUrl ? `${reciter.audioBaseUrl}/` : '';
@@ -1940,13 +1980,38 @@ export const MushafPageView: React.FC<
           throw new Error(`URL ـی دەنگ بۆ ${reciter.name} نەدۆزرایەوە`);
         }
 
+        const url =
+          `${base}${String(surahNumber).padStart(3, '0')}.mp3`;
+
+        const surahInfo =
+          surahsList.find(s => s.number === surahNumber);
+
+        const timings = await loadGaplessTiming(
+          reciter,
+          surahNumber,
+          url,
+          surahInfo?.ayahs
+        );
+
+        const timing =
+          timings?.find(item => item.ayah === ayahNumber) ?? null;
+
         /*
-         * Raad uses the exact ayah boundary returned by its own
-         * timing database.  Other gapless reciters keep their
-         * existing fallback behavior.
+         * Every Kurdish gapless reciter must use timing belonging to
+         * the same audio file. Never fall back to another reciter's
+         * timing or silently seek to the beginning of the surah.
          */
+        if (
+          reciter.category === 'kurdish' &&
+          !timing
+        ) {
+          throw new Error(
+            `کاتی ڕاستی ئەم قارییە نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
+          );
+        }
+
         return {
-          url: `${base}${String(surahNumber).padStart(3, '0')}.mp3`,
+          url,
           startTime: timing?.start_time,
           endTime: timing?.end_time
         };
@@ -1967,12 +2032,52 @@ export const MushafPageView: React.FC<
             surahNumber
           );
 
-        const timings =
+        let timings =
           manualTimings ??
           (await getMp3QuranTiming(
             reciter,
             surahNumber
           ));
+
+        /*
+         * Kurdish custom GitHub audio does not have a safe reason to
+         * use another source's timing. If its own timing is missing,
+         * use the exact same surah MP3 as the timing input.
+         */
+        if (
+          !timings.length &&
+          reciter.category === 'kurdish'
+        ) {
+          const timingUrl =
+            makeMp3QuranSurahUrl(
+              reciter,
+              surahNumber
+            );
+
+          const surahInfo =
+            surahsList.find(
+              s => s.number === surahNumber
+            );
+
+          const fallbackRanges =
+            timingUrl && surahInfo?.ayahs
+              ? await getSilenceBasedRanges(
+                  reciter.id,
+                  surahNumber,
+                  timingUrl,
+                  surahInfo.ayahs
+                )
+              : null;
+
+          timings =
+            fallbackRanges?.map(
+              range => ({
+                ayah: range.ayah,
+                start_time: range.start,
+                end_time: range.end
+              })
+            ) ?? [];
+        }
 
         const timing =
           timings.find(
@@ -1986,26 +2091,18 @@ export const MushafPageView: React.FC<
          * wrong position if its exact timing row is unavailable.
          */
         if (
-          reciter.id ===
-            'peshawa_kurdi' &&
+          reciter.category === 'kurdish' &&
           !timing
         ) {
           throw new Error(
-            `Peshawa timing نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
+            `کاتی ڕاستی ئەم قارییە نەدۆزرایەوە بۆ ${surahNumber}:${ayahNumber}`
           );
         }
 
         /*
-         * تێبینی: ئەگەر کاتی وردی ئایەتەکە نەدۆزرایەوە
-         * (بۆ نموونە قارییەکە لە mp3quran.net فەرمی نییە،
-         * وەک قاریە کوردەکانی GitHub)، ئیتر هەڵە نادەین و
-         * لێدانی دەنگ ناوەستێنین — بەڵکو هەموو سورەتەکە
-         * لە سەرەتاوە دەخوێنینەوە بەبێ هایلایتکردنی
-         * ئایەت بە ئایەت. باشترە لە بێدەنگی تەواو.
-         */
-
-        /*
-         * First try offline audio.
+         * For Kurdish MP3 sources that do not expose an official
+         * MP3Quran timing table, derive timing from THIS exact
+         * surah audio file. Never borrow another reciter's timing.
          */
         try {
           const blobKey = `${reciter.id}_${surahNumber}`;
@@ -3292,10 +3389,22 @@ export const MushafPageView: React.FC<
           selectedReciter.audioSource ===
           'gapless'
         ) {
+          const timingUrl =
+            selectedReciter.audioBaseUrl
+              ? `${selectedReciter.audioBaseUrl.replace(/\/+$/, '')}/${String(a.surahNumber).padStart(3, '0')}.mp3`
+              : undefined;
+
+          const surahInfo =
+            surahsList.find(
+              s => s.number === a.surahNumber
+            );
+
           const timings =
             await loadGaplessTiming(
               selectedReciter,
-              a.surahNumber
+              a.surahNumber,
+              timingUrl,
+              surahInfo?.ayahs
             );
 
           gaplessActiveTimingRef.current =
@@ -3331,14 +3440,12 @@ export const MushafPageView: React.FC<
             source.url;
 
           /*
-           * Raad has one MP3 per surah. When the user switches
-           * between two surahs on the same Mushaf page, force the
-           * browser to load the NEW surah before seeking.
-           * This branch is Raad-only; other reciters are unchanged.
+           * All Kurdish surah-based sources use one MP3 per surah.
+           * Force the browser to load the new source before seeking,
+           * especially when two surahs share one Mushaf page.
            */
           if (
-            selectedReciter.id === 'raad_kurdi' ||
-            selectedReciter.id === 'peshawa_kurdi'
+            selectedReciter.category === 'kurdish'
           ) {
             audio.load();
           }
@@ -3611,10 +3718,22 @@ export const MushafPageView: React.FC<
           selectedReciter.audioSource ===
           'gapless'
         ) {
+          const timingUrl =
+            selectedReciter.audioBaseUrl
+              ? `${selectedReciter.audioBaseUrl.replace(/\/+$/, '')}/${String(ayah.surahNumber).padStart(3, '0')}.mp3`
+              : undefined;
+
+          const surahInfo =
+            surahsList.find(
+              s => s.number === ayah.surahNumber
+            );
+
           const timings =
             await loadGaplessTiming(
               selectedReciter,
-              ayah.surahNumber
+              ayah.surahNumber,
+              timingUrl,
+              surahInfo?.ayahs
             );
 
           gaplessActiveTimingRef.current =
@@ -3633,11 +3752,52 @@ export const MushafPageView: React.FC<
            * Use the exact MP3Quran ayah timing for page playback
            * as well, so the highlight moves with the spoken ayah.
            */
-          const timings =
-            await getMp3QuranTiming(
-              selectedReciter,
+          let timings =
+            await loadManualTiming(
+              selectedReciter.id,
               ayah.surahNumber
             );
+
+          timings =
+            timings ??
+            (await getMp3QuranTiming(
+              selectedReciter,
+              ayah.surahNumber
+            ));
+
+          if (
+            !timings.length &&
+            selectedReciter.category === 'kurdish'
+          ) {
+            const timingUrl =
+              selectedReciter.audioBaseUrl
+                ? `${selectedReciter.audioBaseUrl.replace(/\/+$/, '')}/${String(ayah.surahNumber).padStart(3, '0')}.mp3`
+                : undefined;
+
+            const surahInfo =
+              surahsList.find(
+                s => s.number === ayah.surahNumber
+              );
+
+            const fallbackRanges =
+              timingUrl && surahInfo?.ayahs
+                ? await getSilenceBasedRanges(
+                    selectedReciter.id,
+                    ayah.surahNumber,
+                    timingUrl,
+                    surahInfo.ayahs
+                  )
+                : null;
+
+            timings =
+              fallbackRanges?.map(
+                range => ({
+                  ayah: range.ayah,
+                  start_time: range.start,
+                  end_time: range.end
+                })
+              ) ?? [];
+          }
 
           gaplessActiveTimingRef.current =
             timings.length
@@ -3672,14 +3832,12 @@ export const MushafPageView: React.FC<
             source.url;
 
           /*
-           * Raad has one MP3 per surah. When the user switches
-           * between two surahs on the same Mushaf page, force the
-           * browser to load the NEW surah before seeking.
-           * This branch is Raad-only; other reciters are unchanged.
+           * All Kurdish surah-based sources use one MP3 per surah.
+           * Force the browser to load the new source before seeking,
+           * especially when two surahs share one Mushaf page.
            */
           if (
-            selectedReciter.id === 'raad_kurdi' ||
-            selectedReciter.id === 'peshawa_kurdi'
+            selectedReciter.category === 'kurdish'
           ) {
             audio.load();
           }
