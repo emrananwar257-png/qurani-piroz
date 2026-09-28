@@ -2180,6 +2180,14 @@ export function QuranReader({
         const audio = audioRef.current;
         if (!audio) return;
 
+        const ayahNumber =
+          identity?.ayahNumber ??
+          Number(
+            selectedAyah?.ayah ??
+              selectedAyah?.numberInSurah ??
+              index + 1,
+          );
+
         if (selectedReciter.id === RIZGAR_RECITER_ID) {
           setSelectedAyah({
             page: currentPage,
@@ -2344,14 +2352,6 @@ export function QuranReader({
           if (requestId !== playRequestRef.current) {
             return;
           }
-
-          const ayahNumber =
-            identity?.ayahNumber ??
-            Number(
-              selectedAyah?.ayah ??
-                selectedAyah?.numberInSurah ??
-                index + 1,
-            );
 
           const timing = rows.find(
             (row) =>
