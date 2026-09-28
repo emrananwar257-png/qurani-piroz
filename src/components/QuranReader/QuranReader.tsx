@@ -2038,58 +2038,19 @@ export function QuranReader({
 
           const src = remoteSrc;
 
-          // هەر tap ـێک دەبێت audio source ـی سورەتی خۆی بە ڕوونی دابنێت.
-          if (selectedReciter.id !== RIZGAR_RECITER_ID) {
-            audio.pause();
-            try {
-              audio.currentTime = 0;
-            } catch {
-              // Ignore.
-            }
-            audio.removeAttribute('src');
-            audio.load();
-            audio.src = src;
-            audio.load();
+          // Every reciter, including Rizgar, uses the same HTMLAudioElement.
+          audio.pause();
+          try {
+            audio.currentTime = 0;
+          } catch {
+            // Ignore.
           }
+          audio.removeAttribute('src');
+          audio.load();
+          audio.src = remoteSrc;
+          audio.load();
 
           if (requestId !== playRequestRef.current) {
-            return;
-          }
-
-          if (selectedReciter.id === RIZGAR_RECITER_ID) {
-            if (!timing) {
-              throw new Error('کاتی دەنگی ڕزگار بۆ ئەم ئایەتە نەدۆزرایەوە.');
-            }
-            audio.muted = true;
-            const seekTo = Math.max(0, timing.start);
-            const applySeek = () => {
-              try { audio.currentTime = seekTo; } catch { /* wait for metadata */ }
-            };
-            activeTimingRef.current = timing;
-            setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
-            setRizgarAudioHighlightedAyah({ page: currentPage, surahNumber, ayahNumber });
-            applySeek();
-            if (audio.readyState < 1) {
-              await new Promise<void>((resolve) => {
-                let settled = false;
-                const finish = () => {
-                  if (settled) return;
-                  settled = true;
-                  audio.removeEventListener('loadedmetadata', finish);
-                  window.clearTimeout(timer);
-                  resolve();
-                };
-                const timer = window.setTimeout(finish, 2000);
-                audio.addEventListener('loadedmetadata', finish, { once: true });
-              });
-              applySeek();
-            }
-            if (requestId !== playRequestRef.current) return;
-            await audio.play();
-            applySeek();
-            audio.muted = false;
-            announceAudioPlaying(audio);
-            setIsPlaying(true);
             return;
           }
 
@@ -2101,67 +2062,20 @@ export function QuranReader({
 
           if (timing) {
             const seekTo = Math.max(0, timing.start);
+            const clamped = Math.max(
+              0,
+              Math.min(
+                seekTo,
+                Number.isFinite(audio.duration)
+                  ? Math.max(0, audio.duration - 0.05)
+                  : seekTo,
+              ),
+            );
 
-            const seekAudioTo = async (
-              target: number,
-              waitForSeekComplete = false,
-            ) => {
-              const clamped = Math.max(
-                0,
-                Math.min(
-                  target,
-                  Number.isFinite(audio.duration)
-                    ? Math.max(0, audio.duration - 0.05)
-                    : target,
-                ),
-              );
-
-              const applySeek = () => {
-                try {
-                  audio.currentTime = clamped;
-                } catch {
-                  // Ignore transient seek errors.
-                }
-              };
-
-              applySeek();
-
-              if (
-                !waitForSeekComplete &&
-                Math.abs(audio.currentTime - clamped) <= 0.15
-              ) {
-                return;
-              }
-
-              if (waitForSeekComplete && clamped === 0) {
-                return;
-              }
-
-              await new Promise<void>((resolve) => {
-                let settled = false;
-
-                const finish = () => {
-                  if (settled) return;
-                  settled = true;
-                  audio.removeEventListener('seeked', finish);
-                  window.clearTimeout(timer);
-                  resolve();
-                };
-
-                const timer = window.setTimeout(finish, 1500);
-                audio.addEventListener('seeked', finish, { once: true });
-                applySeek();
-              });
-
-              if (Math.abs(audio.currentTime - clamped) > 0.15) {
-                applySeek();
-              }
-            };
-
-            await seekAudioTo(seekTo, false);
-
-            if (requestId !== playRequestRef.current) {
-              return;
+            try {
+              audio.currentTime = clamped;
+            } catch {
+              // Metadata is ready; ignore a transient seek error.
             }
 
             activeTimingRef.current = timing;
@@ -2177,43 +2091,38 @@ export function QuranReader({
                 surahNumber,
                 ayahNumber,
               });
+              audio.muted = true;
             }
-
-          } else {
-              audio.muted = false;
-              await audio.play();
-            }
-
-            announceAudioPlaying(audio);
-            setIsPlaying(true);
 
             if (requestId !== playRequestRef.current) {
-              audio.pause();
               return;
             }
 
-            if (rizgarTarget !== null) {
-              enforceRizgarSeek();
-              window.setTimeout(enforceRizgarSeek, 100);
-              window.setTimeout(enforceRizgarSeek, 300);
-              window.setTimeout(enforceRizgarSeek, 700);
+            await audio.play();
 
-              audio.removeEventListener('playing', enforceRizgarSeek);
-              audio.removeEventListener('canplay', enforceRizgarSeek);
-            }
-          } else {
-            activeTimingRef.current = null;
-            setPlayingAyah(null);
-
+            // Re-apply once after play because some mobile browsers snap
+            // currentTime back to the beginning during source activation.
             try {
-              audio.currentTime = 0;
+              if (Math.abs(audio.currentTime - clamped) > 0.15) {
+                audio.currentTime = clamped;
+              }
             } catch {
               // Ignore.
             }
 
+            if (selectedReciter.id === RIZGAR_RECITER_ID) {
+              audio.muted = false;
+            }
+
             announceAudioPlaying(audio);
-            await audio.play();
+            setIsPlaying(true);
+            return;
           }
+
+          activeTimingRef.current = null;
+          setPlayingAyah(null);
+          announceAudioPlaying(audio);
+          await audio.play();
 
 
         } catch (err) {
