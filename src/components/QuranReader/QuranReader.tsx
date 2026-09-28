@@ -1221,7 +1221,7 @@ async function fetchRizgarTimingFromDb(
       tableName: string,
     ): number | null => {
       const match = tableName.match(
-        /(?:^|[^0-9])(\\d{1,3})(?:[^0-9]|$)/,
+        /(?:^|[^0-9])(\d{1,3})(?:[^0-9]|$)/,
       );
 
       if (!match) return null;
