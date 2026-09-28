@@ -2219,6 +2219,7 @@ export function QuranReader({
             announceAudioPlaying(audio);
             await audio.play();
             enforceRizgarSeek();
+            setIsPlaying(true);
 
             if (requestId !== playRequestRef.current) {
               audio.pause();
