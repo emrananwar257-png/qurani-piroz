@@ -1434,6 +1434,18 @@ export function QuranReader({
     ayahNumber: number;
   } | null>(null);
 
+  // Rizgar-only: keep the user's selected ayah separate from the
+  // moving audio highlight. The selected ayah stays green; the
+  // audio highlight follows the timing DB independently.
+  const [
+    selectedAyah,
+    setSelectedAyah,
+  ] = useState<{
+    page: number;
+    surahNumber: number;
+    ayahNumber: number;
+  } | null>(null);
+
   const [isPlaying, setIsPlaying] =
     useState(false);
 
@@ -1925,6 +1937,18 @@ export function QuranReader({
         const audio = audioRef.current;
         if (!audio) return;
 
+        if (selectedReciter.id === RIZGAR_RECITER_ID) {
+          setSelectedAyah({
+            page: currentPage,
+            surahNumber,
+            ayahNumber: identity?.ayahNumber ?? Number(
+              selectedAyah?.ayah ??
+                selectedAyah?.numberInSurah ??
+                index + 1,
+            ),
+          });
+        }
+
         const requestId =
           ++playRequestRef.current;
 
@@ -2367,17 +2391,8 @@ export function QuranReader({
       // fetchRizgarTimingFromDb converts that marker into the final row's
       // end value, so only the final ayah may finish the audio here.
       const lastTiming = surahRows[surahRows.length - 1];
-      if (
-        currentTiming.ayah === lastTiming.ayah &&
-        Number.isFinite(lastTiming.end) &&
-        now >= lastTiming.end - 0.05
-      ) {
-        audio.pause();
-        setIsPlaying(false);
-        activeTimingRef.current = null;
-        setPlayingAyah(null);
-      }
-
+      // Do not pause between ayahs. The single Rizgar surah MP3 is
+      // continuous; timing points only move the audio highlight.
       return;
     }
 
@@ -2580,8 +2595,16 @@ export function QuranReader({
           if (!match) return null;
 
           const { ayah, index } = match;
-          const active =
-            playingAyah?.page === currentPage && playingAyah.surahNumber === box.surahNumber && playingAyah.ayahNumber === box.ayahNumber;
+          const audioActive =
+            playingAyah?.page === currentPage &&
+            playingAyah.surahNumber === box.surahNumber &&
+            playingAyah.ayahNumber === box.ayahNumber;
+
+          const rizgarSelected =
+            selectedReciter?.id === RIZGAR_RECITER_ID &&
+            selectedAyah?.page === currentPage &&
+            selectedAyah.surahNumber === box.surahNumber &&
+            selectedAyah.ayahNumber === box.ayahNumber;
 
           return (
             <button
@@ -2619,22 +2642,28 @@ export function QuranReader({
                 height: `${box.height}%`,
                 padding: 0,
                 margin: 0,
-                border: active
-                  ? selectedReciter?.id === RIZGAR_RECITER_ID
-                    ? '2px solid rgba(0,150,80,0.95)'
-                    : '2px solid rgba(255,174,0,0.9)'
-                  : '1px solid transparent',
+                border: rizgarSelected
+                  ? '2px solid rgba(0,150,80,0.95)'
+                  : audioActive
+                    ? selectedReciter?.id === RIZGAR_RECITER_ID
+                      ? '2px solid rgba(90,150,255,0.90)'
+                      : '2px solid rgba(255,174,0,0.9)'
+                    : '1px solid transparent',
                 borderRadius: 6,
-                background: active
-                  ? selectedReciter?.id === RIZGAR_RECITER_ID
-                    ? 'rgba(0,150,80,0.26)'
-                    : 'rgba(255,196,0,0.26)'
-                  : 'transparent',
-                boxShadow: active
-                  ? selectedReciter?.id === RIZGAR_RECITER_ID
-                    ? '0 0 14px rgba(0,150,80,0.22)'
-                    : '0 0 14px rgba(255,174,0,0.22)'
-                  : 'none',
+                background: rizgarSelected
+                  ? 'rgba(0,150,80,0.26)'
+                  : audioActive
+                    ? selectedReciter?.id === RIZGAR_RECITER_ID
+                      ? 'rgba(90,150,255,0.24)'
+                      : 'rgba(255,196,0,0.26)'
+                    : 'transparent',
+                boxShadow: rizgarSelected
+                  ? '0 0 14px rgba(0,150,80,0.22)'
+                  : audioActive
+                    ? selectedReciter?.id === RIZGAR_RECITER_ID
+                      ? '0 0 14px rgba(90,150,255,0.20)'
+                      : '0 0 14px rgba(255,174,0,0.22)'
+                    : 'none',
                 cursor: 'pointer',
                 zIndex: 20,
                 appearance: 'none',
@@ -2659,6 +2688,8 @@ export function QuranReader({
       currentPage,
       playAyah,
       playingAyah,
+      selectedAyah,
+      selectedReciter,
       selectedSurahNumber,
     ]);
 
