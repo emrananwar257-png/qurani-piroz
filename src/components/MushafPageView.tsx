@@ -1715,6 +1715,35 @@ export const MushafPageView: React.FC<
         return exactPeshawaRead;
       }
 
+      /*
+       * Ramadan Shakoor's MP3Quran source is explicitly read 227.
+       * Lock the read ID so its ayah timing always belongs to the
+       * exact same audio source.
+       */
+      if (
+        reciter.id ===
+        'ramazan_shukur'
+      ) {
+        const exactRamadanRead: Mp3QuranRead = {
+          id: 227,
+          server:
+            reciter.audioBaseUrl,
+          surah_total: 114,
+          surah_list:
+            Array.from(
+              { length: 114 },
+              (_, index) =>
+                index + 1
+            ).join(',')
+        };
+
+        mp3ReadCacheRef.current[
+          cacheKey
+        ] = exactRamadanRead;
+
+        return exactRamadanRead;
+      }
+
       try {
         const response =
           await fetch(
