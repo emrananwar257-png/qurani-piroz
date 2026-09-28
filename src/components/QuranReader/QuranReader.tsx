@@ -1988,6 +1988,24 @@ export function QuranReader({
         setIsPlaying(false);
         audio.pause();
 
+        // Rizgar must request playback immediately from the user's pointer
+        // gesture. Do this before ANY awaited timing/network work; otherwise
+        // mobile browsers can reject play() after the gesture has ended.
+        const rizgarPlayPromise =
+          selectedReciter.id === RIZGAR_RECITER_ID
+            ? (() => {
+                const src = makeSurahAudioUrl(
+                  selectedReciter,
+                  surahNumber,
+                );
+                audio.removeAttribute('src');
+                audio.load();
+                audio.src = src;
+                audio.load();
+                return audio.play();
+              })()
+            : null;
+
         try {
           let rows: TimingRow[] = [];
           try {
@@ -2038,40 +2056,29 @@ export function QuranReader({
           );
 
           // هەر tap ـێک دەبێت audio source ـی سورەتی خۆی بە ڕوونی دابنێت.
-          // بە پشکنینی audio.src پشت بە browser ـەکە نابەستین،
-          // چونکە لە گۆڕینی 112 → 113 → 114 دەتوانێت source ـی پێشوو بمێنێتەوە.
-          // ناسنامەی ڕاستەقینەی playback لێرەدا surahNumber ـە.
-          audio.pause();
-          try {
-            audio.currentTime = 0;
-          } catch {
-            // Ignore.
+          // بۆ ڕزگار source ـەکە لە سەرەتا و پێش timing دانراوە و play()
+          // کراوە بۆ پاراستنی user gesture ـی مۆبایل؛ لێرەدا تەنها
+          // reciter ـە generic ـەکان source دادەنێن.
+          if (selectedReciter.id !== RIZGAR_RECITER_ID) {
+            audio.pause();
+            try {
+              audio.currentTime = 0;
+            } catch {
+              // Ignore.
+            }
+            audio.removeAttribute('src');
+            audio.load();
+            audio.src = src;
+            audio.load();
           }
-          audio.removeAttribute('src');
-          audio.load();
-          audio.src = src;
-          audio.load();
-
-          // IMPORTANT for Rizgar on mobile:
-          // start playback while still inside the user's pointer gesture.
-          // Waiting for loadedmetadata first can lose the autoplay/user-gesture
-          // permission, so the audio appears selected/highlighted but never plays.
-          const rizgarPlayPromise =
-            selectedReciter.id === RIZGAR_RECITER_ID
-              ? audio.play()
-              : null;
 
           if (requestId !== playRequestRef.current) {
             return;
           }
 
-          if (selectedReciter.id !== RIZGAR_RECITER_ID) {
-            await waitForMetadata(audio);
-          } else {
-            // Rizgar playback has already been requested above. Metadata is
-            // still needed before seeking to the exact ayah start.
-            await waitForMetadata(audio);
-          }
+          // Metadata is needed before seeking to the exact ayah start.
+          // For Rizgar, playback was already requested before the timing await.
+          await waitForMetadata(audio);
 
           if (requestId !== playRequestRef.current) {
             return;
