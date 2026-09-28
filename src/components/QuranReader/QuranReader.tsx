@@ -2341,10 +2341,19 @@ export function QuranReader({
     // We NEVER pause at every ayah. We only move the highlight when the
     // playback position crosses the next timing point.
     if (selectedReciter?.id === RIZGAR_RECITER_ID) {
-      if (!timingRows.length || !playingAyah) return;
+      // Rizgar is gapless: the audio element's currentTime is the ONLY
+      // source of truth for the moving audio highlight.
+      //
+      // Do not depend on the previous playingAyah state here. React state
+      // can be one render behind the browser's audio clock; waiting for it
+      // would make the highlight stick on the old ayah.
+      if (!timingRows.length) return;
 
       const activeSurahNumber =
-        playingAyah.surahNumber ?? selectedSurahNumber;
+        activeTimingRef.current?.surah ??
+        selectedAyah?.surahNumber ??
+        playingAyah?.surahNumber ??
+        selectedSurahNumber;
 
       const surahRows = timingRows
         .filter(
@@ -2356,9 +2365,9 @@ export function QuranReader({
 
       if (!surahRows.length) return;
 
-      // Match Android AudioService.updateAudioPlayPosition():
-      // find the last ayah whose start time is <= MediaPlayer position.
-      let currentTiming = surahRows[0];
+      // Android-style cumulative timing:
+      // current ayah = the last timing point already reached by audio.
+      let currentTiming: TimingRow | null = null;
 
       for (const row of surahRows) {
         if (row.start <= now) {
@@ -2368,30 +2377,32 @@ export function QuranReader({
         }
       }
 
-      const currentAyahNumber = currentTiming.ayah;
-
-      if (
-        playingAyah.surahNumber !== activeSurahNumber ||
-        playingAyah.ayahNumber !== currentAyahNumber
-      ) {
-        activeTimingRef.current = currentTiming;
-        setPlayingAyah({
-          page: currentPage,
-          surahNumber: activeSurahNumber,
-          ayahNumber: currentAyahNumber,
-        });
-      } else if (
-        !activeTimingRef.current ||
-        activeTimingRef.current.ayah !== currentAyahNumber
-      ) {
-        activeTimingRef.current = currentTiming;
+      if (!currentTiming) {
+        currentTiming = surahRows[0];
       }
 
-      // The Android DB reserves ayah 999 as the end-of-surah marker.
-      // It is used to calculate the final ayah's end time, not to stop
-      // playback between ayahs.
-      // Do not pause between ayahs. The single Rizgar surah MP3 is
-      // continuous; timing points only move the audio highlight.
+      activeTimingRef.current = currentTiming;
+
+      const nextPlayingAyah = {
+        page: currentPage,
+        surahNumber: activeSurahNumber,
+        ayahNumber: currentTiming.ayah,
+      };
+
+      setPlayingAyah((previous) => {
+        if (
+          previous?.page === nextPlayingAyah.page &&
+          previous.surahNumber === nextPlayingAyah.surahNumber &&
+          previous.ayahNumber === nextPlayingAyah.ayahNumber
+        ) {
+          return previous;
+        }
+
+        return nextPlayingAyah;
+      });
+
+      // Never pause between Rizgar ayahs. The MP3 is continuous; only
+      // the highlight changes when currentTime crosses a timing point.
       return;
     }
 
@@ -2550,6 +2561,7 @@ export function QuranReader({
     currentPage,
     getCurrentPageAyahIndex,
     playingAyah,
+    selectedAyah,
     selectedReciter,
     selectedSurahNumber,
     timingRows,
