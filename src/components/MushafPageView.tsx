@@ -2740,12 +2740,10 @@ export const MushafPageView: React.FC<
 
       try {
         if (
-          (
           selectedReciter.audioSource ===
             'mp3quran' ||
           selectedReciter.audioSource ===
             'ramadan_shakoor'
-        )
         ) {
           const downloaded =
             await isSurahAudioDownloaded(
@@ -3701,12 +3699,10 @@ export const MushafPageView: React.FC<
                 }
               : null;
         } else if (
-          (
           selectedReciter.audioSource ===
             'mp3quran' ||
           selectedReciter.audioSource ===
             'ramadan_shakoor'
-        )
         ) {
           let timings =
             await loadManualTiming(
@@ -3940,12 +3936,10 @@ export const MushafPageView: React.FC<
         ) {
           /* No DB and no fallback timeline: keep the MP3 playable. */
         } else if (
-          (
           selectedReciter.audioSource ===
             'mp3quran' ||
           selectedReciter.audioSource ===
             'ramadan_shakoor'
-        )
         ) {
           /*
            * Kurdish MP3Quran/GitHub sources are timing-backed above.
@@ -4149,12 +4143,10 @@ export const MushafPageView: React.FC<
                 }
               : null;
         } else if (
-          (
           selectedReciter.audioSource ===
             'mp3quran' ||
           selectedReciter.audioSource ===
             'ramadan_shakoor'
-        )
         ) {
           /*
            * Use the exact MP3Quran ayah timing for page playback
