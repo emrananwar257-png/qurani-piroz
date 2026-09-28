@@ -2324,16 +2324,6 @@ export function QuranReader({
       setIsLoading(false);
     }, []);
 
-  const handleEnded =
-    useCallback(() => {
-      activeTimingRef.current = null;
-      loadingPlayRef.current = false;
-      setPlayingAyah(null);
-
-      setIsPlaying(false);
-      setIsLoading(false);
-    }, []);
-
   const renderAyahAreas =
     useCallback(() => {
       if (!ayahs.length || !ayahBoxes.length) {
