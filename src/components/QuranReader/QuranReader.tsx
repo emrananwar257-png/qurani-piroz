@@ -1998,6 +1998,11 @@ export function QuranReader({
                   selectedReciter,
                   surahNumber,
                 );
+                // Start Rizgar muted inside the user's gesture. The browser can
+                // begin buffering/playing without letting the user hear 0:00.
+                // We then seek the already-playing element to the exact ayah time
+                // and unmute it. This avoids the mobile play()/seek race.
+                audio.muted = true;
                 audio.removeAttribute('src');
                 audio.load();
                 audio.src = src;
@@ -2077,10 +2082,10 @@ export function QuranReader({
           }
 
           // Metadata must be ready before we seek to a Rizgar ayah.
-          // The first play() above is only used to satisfy the mobile user-gesture
-          // policy. Once metadata is ready, Rizgar is deliberately paused, moved
-          // to the exact DB timestamp, and started again from that timestamp.
-          // This prevents mobile browsers from leaving playback at 0:00.
+          // Rizgar is already playing silently from the user's gesture.
+          // We move that same playing element to the exact DB timestamp,
+          // then unmute it. No second play() is needed, so there is no
+          // opportunity for mobile Safari/Chrome to restart at 0:00.
           await waitForMetadata(audio);
 
           if (requestId !== playRequestRef.current) {
@@ -2147,19 +2152,20 @@ export function QuranReader({
             };
 
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
-              // Make sure the initial user-gesture play request has settled
-              // before we pause, seek, and restart at the requested ayah.
+              // The muted playback was started during the user's gesture.
+              // Wait until that request settles, then seek the SAME playback
+              // instance instead of pausing and starting a new one.
               try {
                 await rizgarPlayPromise;
               } catch {
-                // The second play() below is the real playback attempt.
+                // If the first play failed, the normal play() fallback below
+                // will make one final attempt.
               }
 
               if (requestId !== playRequestRef.current) {
                 return;
               }
 
-              audio.pause();
               rizgarPendingSeekRef.current = seekTo;
               await seekAudioTo(seekTo, true);
             } else {
@@ -2216,9 +2222,24 @@ export function QuranReader({
               audio.addEventListener('canplay', enforceRizgarSeek);
             }
 
+            if (rizgarTarget !== null) {
+              // The audio has been playing silently while we sought.
+              // Unmute only after the exact ayah position is established.
+              audio.muted = false;
+              enforceRizgarSeek();
+
+              // If muted playback was rejected by the browser, retry here
+              // while the playback request is still associated with this
+              // interaction. Otherwise the existing playback continues.
+              if (audio.paused) {
+                await audio.play();
+              }
+            } else {
+              audio.muted = false;
+              await audio.play();
+            }
+
             announceAudioPlaying(audio);
-            await audio.play();
-            enforceRizgarSeek();
             setIsPlaying(true);
 
             if (requestId !== playRequestRef.current) {
