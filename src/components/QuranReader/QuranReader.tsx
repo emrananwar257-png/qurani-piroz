@@ -1381,40 +1381,6 @@ export function QuranReader({
   const activeTimingRef =
     useRef<TimingRow | null>(null);
 
-  // Rizgar-only guard for mobile browsers that restart a gapless MP3 at 0:00.
-  const rizgarPendingSeekRef =
-    useRef<number | null>(null);
-
-  // Rizgar-only: keep the audio highlight clock running smoothly on mobile.
-  const rizgarHighlightRafRef =
-    useRef<number | null>(null);
-
-  // Rizgar-only Web Audio engine. HTMLAudioElement.currentTime is unreliable
-  // on some mobile browsers, so seek/playback uses a decoded AudioBuffer.
-  const rizgarAudioContextRef =
-    useRef<AudioContext | null>(null);
-  const rizgarAudioBufferCacheRef =
-    useRef(new Map<number, AudioBuffer>());
-  const rizgarAudioSourceRef =
-    useRef<AudioBufferSourceNode | null>(null);
-  const rizgarWebAudioStartedAtRef =
-    useRef(0);
-  const rizgarWebAudioOffsetRef =
-    useRef(0);
-  const rizgarWebAudioTimeRef =
-    useRef(0);
-  const rizgarWebAudioPlayingRef =
-    useRef(false);
-
-  // Rizgar-only: keep a local Blob URL for the active surah. Some mobile
-  // browsers do not reliably seek GitHub-hosted MP3s, even when currentTime
-  // and media fragments are set correctly. A local Blob makes the MP3 fully
-  // seekable before we start it.
-  const rizgarAudioUrlCacheRef =
-    useRef(new Map<number, string>());
-  const rizgarAudioPromiseRef =
-    useRef(new Map<number, Promise<string>>());
-
   const playRequestRef =
     useRef(0);
 
@@ -1665,20 +1631,6 @@ export function QuranReader({
       audio.load();
     }
 
-    const rizgarSource = rizgarAudioSourceRef.current;
-    if (rizgarSource) {
-      try {
-        rizgarSource.stop();
-      } catch {
-        // Already stopped.
-      }
-      rizgarSource.disconnect();
-      rizgarAudioSourceRef.current = null;
-    }
-    rizgarWebAudioPlayingRef.current = false;
-    rizgarWebAudioOffsetRef.current = 0;
-    rizgarWebAudioTimeRef.current = 0;
-
     setPlayingAyah(null);
     setIsPlaying(false);
     setIsLoading(false);
@@ -1724,21 +1676,6 @@ export function QuranReader({
         audio.load();
       }
 
-      const source = rizgarAudioSourceRef.current;
-      if (source) {
-        try {
-          source.stop();
-        } catch {
-          // Already stopped.
-        }
-        source.disconnect();
-        rizgarAudioSourceRef.current = null;
-      }
-
-      rizgarWebAudioPlayingRef.current = false;
-      rizgarAudioContextRef.current?.close().catch(() => {});
-      rizgarAudioContextRef.current = null;
-      rizgarAudioBufferCacheRef.current.clear();
     };
   }, []);
 
@@ -2336,91 +2273,24 @@ export function QuranReader({
     useCallback(() => {
       if (playingAyah === null) return;
 
-      if (selectedReciter?.id === RIZGAR_RECITER_ID) {
-        const context = rizgarAudioContextRef.current;
-        const source = rizgarAudioSourceRef.current;
-        if (!context || !source?.buffer) return;
-
-        if (rizgarWebAudioPlayingRef.current) {
-          const elapsed =
-            context.currentTime -
-            rizgarWebAudioStartedAtRef.current;
-
-          rizgarWebAudioOffsetRef.current =
-            Math.max(0, elapsed);
-          rizgarWebAudioTimeRef.current =
-            rizgarWebAudioOffsetRef.current;
-
-          try {
-            source.stop();
-          } catch {
-            // Already stopped.
-          }
-          source.disconnect();
-          rizgarAudioSourceRef.current = null;
-          rizgarWebAudioPlayingRef.current = false;
-          setIsPlaying(false);
-          return;
-        }
-
-        const buffer = source.buffer;
-        const offset = Math.min(
-          rizgarWebAudioOffsetRef.current,
-          Math.max(0, buffer.duration - 0.01),
-        );
-        const nextSource =
-          context.createBufferSource();
-
-        nextSource.buffer = buffer;
-        nextSource.connect(context.destination);
-        rizgarAudioSourceRef.current = nextSource;
-        rizgarWebAudioStartedAtRef.current =
-          context.currentTime - offset;
-        rizgarWebAudioTimeRef.current = offset;
-        rizgarWebAudioPlayingRef.current = true;
-
-        nextSource.onended = () => {
-          if (rizgarAudioSourceRef.current !== nextSource) return;
-          rizgarAudioSourceRef.current = null;
-          rizgarWebAudioPlayingRef.current = false;
-          rizgarWebAudioTimeRef.current = buffer.duration;
-          setIsPlaying(false);
-        };
-
-        void context.resume().then(() => {
-          if (rizgarAudioSourceRef.current === nextSource) {
-            nextSource.start(0, offset);
-            announceAudioPlaying(
-              audioRef.current as HTMLAudioElement,
-            );
-            setIsPlaying(true);
-          }
-        });
-        return;
-      }
-
       const audio = audioRef.current;
       if (!audio) return;
 
       if (audio.paused) {
-        announceAudioPlaying(audio);
         audio
           .play()
-          .then(() => setIsPlaying(true))
+          .then(() => {
+            announceAudioPlaying(audio);
+            setIsPlaying(true);
+          })
           .catch(() =>
-            setError(
-              'دەنگەکە نەکرا پخش بکرێت.',
-            ),
+            setError('دەنگەکە نەکرا پخش بکرێت.'),
           );
       } else {
         audio.pause();
         setIsPlaying(false);
       }
-    }, [
-      announceAudioPlaying,
-      playingAyah,
-      selectedReciter?.id,
-    ]);
+    }, [announceAudioPlaying, playingAyah]);
 
   const handleTimeUpdate = useCallback(() => {
     const audio = audioRef.current;
