@@ -1362,6 +1362,11 @@ export function QuranReader({
       null,
     );
 
+  // Rizgar uses a local Blob URL so mobile browsers can seek reliably
+  // instead of depending on GitHub's remote MP3 range-seeking behavior.
+  const rizgarObjectUrlRef =
+    useRef<string | null>(null);
+
   const pagesRef =
     useRef<HTMLDivElement | null>(
       null,
@@ -1951,7 +1956,31 @@ export function QuranReader({
           audio.pause();
           audio.removeAttribute('src');
           audio.load();
-          audio.src = src;
+
+          if (selectedReciter.id === RIZGAR_RECITER_ID) {
+            if (rizgarObjectUrlRef.current) {
+              URL.revokeObjectURL(rizgarObjectUrlRef.current);
+              rizgarObjectUrlRef.current = null;
+            }
+
+            const response = await fetch(src, {
+              cache: 'force-cache',
+            });
+
+            if (!response.ok) {
+              throw new Error(
+                `فایلی دەنگییەکەی ڕزگار نەکرا بار بکرێت: ${response.status}`,
+              );
+            }
+
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            rizgarObjectUrlRef.current = objectUrl;
+            audio.src = objectUrl;
+          } else {
+            audio.src = src;
+          }
+
           audio.load();
 
           await waitForMetadata(audio);
@@ -2100,6 +2129,11 @@ export function QuranReader({
         } catch {
           // Ignore.
         }
+      }
+
+      if (rizgarObjectUrlRef.current) {
+        URL.revokeObjectURL(rizgarObjectUrlRef.current);
+        rizgarObjectUrlRef.current = null;
       }
 
       setIsLoading(false);
@@ -2322,6 +2356,11 @@ export function QuranReader({
       setPlayingAyah(null);
       setIsPlaying(false);
       setIsLoading(false);
+
+      if (rizgarObjectUrlRef.current) {
+        URL.revokeObjectURL(rizgarObjectUrlRef.current);
+        rizgarObjectUrlRef.current = null;
+      }
     }, []);
 
   const renderAyahAreas =
