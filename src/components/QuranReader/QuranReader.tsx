@@ -2052,7 +2052,26 @@ export function QuranReader({
           audio.src = src;
           audio.load();
 
-          await waitForMetadata(audio);
+          // IMPORTANT for Rizgar on mobile:
+          // start playback while still inside the user's pointer gesture.
+          // Waiting for loadedmetadata first can lose the autoplay/user-gesture
+          // permission, so the audio appears selected/highlighted but never plays.
+          const rizgarPlayPromise =
+            selectedReciter.id === RIZGAR_RECITER_ID
+              ? audio.play()
+              : null;
+
+          if (requestId !== playRequestRef.current) {
+            return;
+          }
+
+          if (selectedReciter.id !== RIZGAR_RECITER_ID) {
+            await waitForMetadata(audio);
+          } else {
+            // Rizgar playback has already been requested above. Metadata is
+            // still needed before seeking to the exact ayah start.
+            await waitForMetadata(audio);
+          }
 
           if (requestId !== playRequestRef.current) {
             return;
@@ -2197,7 +2216,12 @@ export function QuranReader({
           }
 
           announceAudioPlaying(audio);
-          await audio.play();
+
+          if (rizgarPlayPromise) {
+            await rizgarPlayPromise;
+          } else {
+            await audio.play();
+          }
 
           enforceRizgarSeek();
 
