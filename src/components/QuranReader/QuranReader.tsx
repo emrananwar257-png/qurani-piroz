@@ -2052,49 +2052,14 @@ export function QuranReader({
           audio.src = src;
           audio.load();
 
-          const isRizgar = selectedReciter.id === RIZGAR_RECITER_ID;
-          if (isRizgar && timing) {
-            rizgarPendingSeekRef.current = Math.max(0, timing.start);
-            activeTimingRef.current = timing;
-            setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
-            setRizgarAudioHighlightedAyah({ page: currentPage, surahNumber, ayahNumber });
-            try { audio.currentTime = Math.max(0, timing.start); } catch {}
-            announceAudioPlaying(audio);
-            await audio.play();
-          } else {
-            await waitForMetadata(audio);
+          await waitForMetadata(audio);
 
           if (requestId !== playRequestRef.current) {
             return;
           }
 
-          // ڕزگار: لە مۆبایلدا هەندێک browser دوای loadedmetadata
-          // seek ـەکە بە تەواوی جێگیر ناکات؛ بۆیە پێش play و دوای play
-          // هەردوو جارەکە شوێنی دەستپێکی ئایەتەکە پشتڕاست دەکەینەوە.
-          if (
-            selectedReciter.id === RIZGAR_RECITER_ID &&
-            timing
-          ) {
-            try {
-              audio.currentTime = Math.max(
-                0,
-                timing.start,
-              );
-            } catch {
-              // Ignore transient seek errors.
-            }
-          }
-
           if (timing) {
-            const seekTo = Math.max(
-              0,
-              Math.min(
-                timing.start,
-                Number.isFinite(audio.duration)
-                  ? Math.max(0, audio.duration - 0.05)
-                  : timing.start,
-              ),
-            );
+            const seekTo = Math.max(0, timing.start);
 
             const seekAudioTo = async (
               target: number,
@@ -2142,47 +2107,37 @@ export function QuranReader({
                   resolve();
                 };
 
-                const timer = window.setTimeout(
-                  finish,
-                  1500,
-                );
+                const timer = window.setTimeout(finish, 1500);
 
-                audio.addEventListener(
-                  'seeked',
-                  finish,
-                  { once: true },
-                );
-
-                // Match Android MediaPlayer: wait for the seek-complete
-                // callback before starting playback. This is important on
-                // mobile browsers where play() can otherwise restart at 0:00.
+                audio.addEventListener('seeked', finish, { once: true });
                 applySeek();
               });
 
-              if (
-                Math.abs(audio.currentTime - clamped) > 0.15
-              ) {
+              if (Math.abs(audio.currentTime - clamped) > 0.15) {
                 applySeek();
               }
             };
 
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
-              rizgarPendingSeekRef.current = timing.start;
+              rizgarPendingSeekRef.current = seekTo;
             }
 
             await seekAudioTo(
-              timing.start,
+              seekTo,
               selectedReciter.id === RIZGAR_RECITER_ID,
             );
 
-            if (
-              requestId !== playRequestRef.current
-            ) {
+            if (requestId !== playRequestRef.current) {
               return;
             }
 
             activeTimingRef.current = timing;
-            setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
+            setPlayingAyah({
+              page: currentPage,
+              surahNumber,
+              ayahNumber,
+            });
+
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
               setRizgarAudioHighlightedAyah({
                 page: currentPage,
@@ -2191,7 +2146,6 @@ export function QuranReader({
               });
             }
           } else {
-            // ئەگەر قارییەکە داتای تایمی نەبوو، دەنگەکە لێبدە بەبێ هیچ هایلایتێک
             activeTimingRef.current = null;
             setPlayingAyah(null);
 
