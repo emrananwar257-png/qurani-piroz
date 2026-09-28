@@ -2695,7 +2695,7 @@ export function QuranReader({
                   ? '2px solid rgba(0,150,80,0.95)'
                   : audioActive
                     ? selectedReciter?.id === RIZGAR_RECITER_ID
-                      ? '2px solid rgba(90,150,255,0.90)'
+                      ? '2px solid rgba(0,150,80,0.95)'
                       : '2px solid rgba(255,174,0,0.9)'
                     : '1px solid transparent',
                 borderRadius: 6,
@@ -2703,14 +2703,14 @@ export function QuranReader({
                   ? 'rgba(0,150,80,0.26)'
                   : audioActive
                     ? selectedReciter?.id === RIZGAR_RECITER_ID
-                      ? 'rgba(90,150,255,0.24)'
+                      ? 'rgba(0,150,80,0.26)'
                       : 'rgba(255,196,0,0.26)'
                     : 'transparent',
                 boxShadow: rizgarSelected
                   ? '0 0 14px rgba(0,150,80,0.22)'
                   : audioActive
                     ? selectedReciter?.id === RIZGAR_RECITER_ID
-                      ? '0 0 14px rgba(90,150,255,0.20)'
+                      ? '0 0 14px rgba(0,150,80,0.22)'
                       : '0 0 14px rgba(255,174,0,0.22)'
                     : 'none',
                 cursor: 'pointer',
