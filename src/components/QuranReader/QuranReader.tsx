@@ -2371,34 +2371,13 @@ export function QuranReader({
           );
 
           if (nextSurahIndex >= 0) {
-            const nextTiming = findTimingRow(
-              timingRows,
-              nextSurahNumber,
-              1,
-            );
-
-            if (nextTiming) {
-              activeTimingRef.current = nextTiming;
-              setPlayingAyah({
-                page: currentPage,
-                surahNumber: nextSurahNumber,
-                ayahNumber: 1,
-              });
-
-              try {
-                audio.currentTime = Math.max(0, nextTiming.start);
-              } catch {
-                // Ignore transient seek errors.
-              }
-
-              announceAudioPlaying(audio);
-              void audio.play()
-                .then(() => setIsPlaying(true))
-                .catch(() =>
-                  setError('دەنگەکە نەکرا بەردەوام بکرێت.'),
-                );
-              return;
-            }
+            // The next surah is already on this page. Re-enter through the
+            // same playAyah path so its own timing DB is loaded first.
+            void playAyah({
+              surahNumber: nextSurahNumber,
+              ayahNumber: 1,
+            });
+            return;
           }
 
           rizgarContinuationRef.current = {
@@ -2438,6 +2417,7 @@ export function QuranReader({
       currentPage,
       getCurrentPageAyahIndex,
       onJumpToPage,
+      playAyah,
       onNextPage,
       playingAyah,
       selectedReciter,
@@ -2833,13 +2813,11 @@ export function QuranReader({
                   flex:
                     '0 0 min(92vw, 520px)',
                   width:
-                    'min(92vw, 520px)',
+                    'min(92vw, 520px, calc((100vh - 200px) * 0.623762))',
                   height:
                     'auto',
                   aspectRatio:
                     '1260 / 2020',
-                  maxHeight:
-                    'calc(100vh - 200px)',
                   scrollSnapAlign:
                     'center',
                   borderRadius: 8,
