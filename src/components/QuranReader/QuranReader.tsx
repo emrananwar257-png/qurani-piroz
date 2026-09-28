@@ -1446,6 +1446,17 @@ export function QuranReader({
     ayahNumber: number;
   } | null>(null);
 
+  // Rizgar-only: the moving audio highlight has its own state,
+  // separate from the user's selected ayah and transport state.
+  const [
+    rizgarAudioHighlightedAyah,
+    setRizgarAudioHighlightedAyah,
+  ] = useState<{
+    page: number;
+    surahNumber: number;
+    ayahNumber: number;
+  } | null>(null);
+
   const [isPlaying, setIsPlaying] =
     useState(false);
 
@@ -2146,6 +2157,13 @@ export function QuranReader({
 
             activeTimingRef.current = timing;
             setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
+            if (selectedReciter.id === RIZGAR_RECITER_ID) {
+              setRizgarAudioHighlightedAyah({
+                page: currentPage,
+                surahNumber,
+                ayahNumber,
+              });
+            }
           } else {
             // ئەگەر قارییەکە داتای تایمی نەبوو، دەنگەکە لێبدە بەبێ هیچ هایلایتێک
             activeTimingRef.current = null;
@@ -2285,6 +2303,7 @@ export function QuranReader({
       setIsLoading(false);
       setIsPlaying(false);
       setPlayingAyah(null);
+      setRizgarAudioHighlightedAyah(null);
     }, []);
 
   const togglePlayPause =
@@ -2388,6 +2407,19 @@ export function QuranReader({
         surahNumber: activeSurahNumber,
         ayahNumber: currentTiming.ayah,
       };
+
+      // Same principle used by the working Peshawa system:
+      // audio clock -> exact timing row -> dedicated audio highlight.
+      setRizgarAudioHighlightedAyah((previous) => {
+        if (
+          previous?.page === nextPlayingAyah.page &&
+          previous.surahNumber === nextPlayingAyah.surahNumber &&
+          previous.ayahNumber === nextPlayingAyah.ayahNumber
+        ) {
+          return previous;
+        }
+        return nextPlayingAyah;
+      });
 
       setPlayingAyah((previous) => {
         if (
@@ -2572,6 +2604,7 @@ export function QuranReader({
       activeTimingRef.current = null;
       loadingPlayRef.current = false;
       setPlayingAyah(null);
+      setRizgarAudioHighlightedAyah(null);
       setIsPlaying(false);
       setIsLoading(false);
     }, []);
@@ -2606,10 +2639,15 @@ export function QuranReader({
           if (!match) return null;
 
           const { ayah, index } = match;
+          const audioHighlightSource =
+            selectedReciter?.id === RIZGAR_RECITER_ID
+              ? rizgarAudioHighlightedAyah
+              : playingAyah;
+
           const audioActive =
-            playingAyah?.page === currentPage &&
-            playingAyah.surahNumber === box.surahNumber &&
-            playingAyah.ayahNumber === box.ayahNumber;
+            audioHighlightSource?.page === currentPage &&
+            audioHighlightSource.surahNumber === box.surahNumber &&
+            audioHighlightSource.ayahNumber === box.ayahNumber;
 
           const rizgarSelected =
             selectedReciter?.id === RIZGAR_RECITER_ID &&
@@ -2699,6 +2737,7 @@ export function QuranReader({
       currentPage,
       playAyah,
       playingAyah,
+      rizgarAudioHighlightedAyah,
       selectedAyah,
       selectedReciter,
       selectedSurahNumber,
