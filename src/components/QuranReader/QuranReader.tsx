@@ -2036,18 +2036,17 @@ export function QuranReader({
             surahNumber,
           );
 
-          const src = remoteSrc;
+          // Rizgar: use a media fragment as the browser's initial seek
+          // position, then confirm the exact position after playback starts.
+          const initialSrc =
+            selectedReciter.id === RIZGAR_RECITER_ID && timing
+              ? `${remoteSrc}#t=${Math.max(0, timing.start)}`
+              : remoteSrc;
 
-          // Every reciter, including Rizgar, uses the same HTMLAudioElement.
           audio.pause();
-          try {
-            audio.currentTime = 0;
-          } catch {
-            // Ignore.
-          }
           audio.removeAttribute('src');
           audio.load();
-          audio.src = remoteSrc;
+          audio.src = initialSrc;
           audio.load();
 
           if (requestId !== playRequestRef.current) {
@@ -2100,17 +2099,50 @@ export function QuranReader({
 
             await audio.play();
 
-            // Re-apply once after play because some mobile browsers snap
-            // currentTime back to the beginning during source activation.
-            try {
-              if (Math.abs(audio.currentTime - clamped) > 0.15) {
-                audio.currentTime = clamped;
-              }
-            } catch {
-              // Ignore.
-            }
-
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
+              // Some Android browsers reset the media position immediately
+              // after play(). Force the timing position on the first frame
+              // where the element is actually playing.
+              await new Promise<void>((resolve) => {
+                let done = false;
+                const finish = () => {
+                  if (done) return;
+                  done = true;
+                  audio.removeEventListener('playing', onPlaying);
+                  window.clearTimeout(timer);
+                  resolve();
+                };
+                const onPlaying = () => {
+                  try {
+                    if (Math.abs(audio.currentTime - clamped) > 0.15) {
+                      audio.currentTime = clamped;
+                    }
+                  } catch {
+                    // Ignore.
+                  }
+                  finish();
+                };
+                const timer = window.setTimeout(finish, 1200);
+                audio.addEventListener('playing', onPlaying, { once: true });
+
+                // If the event already fired before the listener was attached,
+                // perform the same correction immediately.
+                if (!audio.paused) {
+                  try {
+                    if (Math.abs(audio.currentTime - clamped) > 0.15) {
+                      audio.currentTime = clamped;
+                    }
+                  } catch {
+                    // Ignore.
+                  }
+                }
+              });
+
+              try {
+                audio.currentTime = clamped;
+              } catch {
+                // Ignore.
+              }
               audio.muted = false;
             }
 
