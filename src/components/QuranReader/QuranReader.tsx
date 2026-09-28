@@ -2076,8 +2076,11 @@ export function QuranReader({
             return;
           }
 
-          // Metadata is needed before seeking to the exact ayah start.
-          // For Rizgar, playback was already requested before the timing await.
+          // Metadata must be ready before we seek to a Rizgar ayah.
+          // The first play() above is only used to satisfy the mobile user-gesture
+          // policy. Once metadata is ready, Rizgar is deliberately paused, moved
+          // to the exact DB timestamp, and started again from that timestamp.
+          // This prevents mobile browsers from leaving playback at 0:00.
           await waitForMetadata(audio);
 
           if (requestId !== playRequestRef.current) {
@@ -2134,7 +2137,6 @@ export function QuranReader({
                 };
 
                 const timer = window.setTimeout(finish, 1500);
-
                 audio.addEventListener('seeked', finish, { once: true });
                 applySeek();
               });
@@ -2145,13 +2147,24 @@ export function QuranReader({
             };
 
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
-              rizgarPendingSeekRef.current = seekTo;
-            }
+              // Make sure the initial user-gesture play request has settled
+              // before we pause, seek, and restart at the requested ayah.
+              try {
+                await rizgarPlayPromise;
+              } catch {
+                // The second play() below is the real playback attempt.
+              }
 
-            await seekAudioTo(
-              seekTo,
-              selectedReciter.id === RIZGAR_RECITER_ID,
-            );
+              if (requestId !== playRequestRef.current) {
+                return;
+              }
+
+              audio.pause();
+              rizgarPendingSeekRef.current = seekTo;
+              await seekAudioTo(seekTo, true);
+            } else {
+              await seekAudioTo(seekTo, false);
+            }
 
             if (requestId !== playRequestRef.current) {
               return;
@@ -2171,6 +2184,56 @@ export function QuranReader({
                 ayahNumber,
               });
             }
+
+            const rizgarTarget =
+              selectedReciter.id === RIZGAR_RECITER_ID
+                ? seekTo
+                : null;
+
+            const enforceRizgarSeek = () => {
+              if (
+                rizgarTarget === null ||
+                requestId !== playRequestRef.current
+              ) {
+                return;
+              }
+
+              rizgarPendingSeekRef.current = rizgarTarget;
+
+              try {
+                if (
+                  Math.abs(audio.currentTime - rizgarTarget) > 0.15
+                ) {
+                  audio.currentTime = rizgarTarget;
+                }
+              } catch {
+                // Ignore transient seek errors.
+              }
+            };
+
+            if (rizgarTarget !== null) {
+              audio.addEventListener('playing', enforceRizgarSeek);
+              audio.addEventListener('canplay', enforceRizgarSeek);
+            }
+
+            announceAudioPlaying(audio);
+            await audio.play();
+            enforceRizgarSeek();
+
+            if (requestId !== playRequestRef.current) {
+              audio.pause();
+              return;
+            }
+
+            if (rizgarTarget !== null) {
+              enforceRizgarSeek();
+              window.setTimeout(enforceRizgarSeek, 100);
+              window.setTimeout(enforceRizgarSeek, 300);
+              window.setTimeout(enforceRizgarSeek, 700);
+
+              audio.removeEventListener('playing', enforceRizgarSeek);
+              audio.removeEventListener('canplay', enforceRizgarSeek);
+            }
           } else {
             activeTimingRef.current = null;
             setPlayingAyah(null);
@@ -2180,90 +2243,12 @@ export function QuranReader({
             } catch {
               // Ignore.
             }
-          }
 
-          const rizgarTarget =
-            selectedReciter.id === RIZGAR_RECITER_ID && timing
-              ? Math.max(0, timing.start)
-              : null;
-
-          const enforceRizgarSeek = () => {
-            if (
-              rizgarTarget === null ||
-              requestId !== playRequestRef.current
-            ) {
-              return;
-            }
-
-            rizgarPendingSeekRef.current = rizgarTarget;
-
-            try {
-              if (
-                Math.abs(audio.currentTime - rizgarTarget) > 0.15
-              ) {
-                audio.currentTime = rizgarTarget;
-              }
-            } catch {
-              // Ignore transient seek errors.
-            }
-          };
-
-          if (rizgarTarget !== null) {
-            // Mobile browsers can reset currentTime to 0 while transitioning
-            // from "play requested" to "playing". Re-apply the target at the
-            // actual playing boundary as well as from timeupdate.
-            audio.addEventListener(
-              'playing',
-              enforceRizgarSeek,
-            );
-            audio.addEventListener(
-              'canplay',
-              enforceRizgarSeek,
-            );
-          }
-
-          announceAudioPlaying(audio);
-
-          if (rizgarPlayPromise) {
-            await rizgarPlayPromise;
-          } else {
+            announceAudioPlaying(audio);
             await audio.play();
           }
 
-          enforceRizgarSeek();
 
-          if (requestId !== playRequestRef.current) {
-            audio.pause();
-            return;
-          }
-
-          if (rizgarTarget !== null) {
-            // One final enforcement after play() resolves.
-            enforceRizgarSeek();
-            window.setTimeout(
-              enforceRizgarSeek,
-              100,
-            );
-            window.setTimeout(
-              enforceRizgarSeek,
-              300,
-            );
-            window.setTimeout(
-              enforceRizgarSeek,
-              700,
-            );
-
-            audio.removeEventListener(
-              'playing',
-              enforceRizgarSeek,
-            );
-            audio.removeEventListener(
-              'canplay',
-              enforceRizgarSeek,
-            );
-          }
-
-          setIsPlaying(true);
         } catch (err) {
           if (requestId !== playRequestRef.current) {
             return;
