@@ -1891,6 +1891,18 @@ export function QuranReader({
     };
   }, []);
 
+  // Rizgar-only: preload timing before the user's touch so mobile playback
+  // can start without waiting for the timing DB/network after the gesture.
+  useEffect(() => {
+    if (selectedReciter?.id !== RIZGAR_RECITER_ID || !ayahs.length) return;
+    const surahs = Array.from(new Set(ayahs.map((ayah: any) =>
+      Number(ayah?.surahNumber ?? ayah?.surah?.number ?? 0)
+    ).filter((n: number) => Number.isInteger(n) && n >= 1 && n <= 114)));
+    for (const surahNumber of surahs) {
+      void timingForCurrentSurah(selectedReciter, surahNumber).catch(() => {});
+    }
+  }, [ayahs, selectedReciter, timingForCurrentSurah]);
+
   const playAyah =
     useCallback(
       async (
@@ -2040,7 +2052,17 @@ export function QuranReader({
           audio.src = src;
           audio.load();
 
-          await waitForMetadata(audio);
+          const isRizgar = selectedReciter.id === RIZGAR_RECITER_ID;
+          if (isRizgar && timing) {
+            rizgarPendingSeekRef.current = Math.max(0, timing.start);
+            activeTimingRef.current = timing;
+            setPlayingAyah({ page: currentPage, surahNumber, ayahNumber });
+            setRizgarAudioHighlightedAyah({ page: currentPage, surahNumber, ayahNumber });
+            try { audio.currentTime = Math.max(0, timing.start); } catch {}
+            announceAudioPlaying(audio);
+            await audio.play();
+          } else {
+            await waitForMetadata(audio);
 
           if (requestId !== playRequestRef.current) {
             return;
