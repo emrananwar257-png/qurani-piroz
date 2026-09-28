@@ -1381,6 +1381,10 @@ export function QuranReader({
   const activeTimingRef =
     useRef<TimingRow | null>(null);
 
+  // Rizgar-only guard for mobile browsers that restart a gapless MP3 at 0:00.
+  const rizgarPendingSeekRef =
+    useRef<number | null>(null);
+
   const playRequestRef =
     useRef(0);
 
@@ -2101,6 +2105,10 @@ export function QuranReader({
               }
             };
 
+            if (selectedReciter.id === RIZGAR_RECITER_ID) {
+              rizgarPendingSeekRef.current = timing.start;
+            }
+
             await seekAudioTo(
               timing.start,
               selectedReciter.id === RIZGAR_RECITER_ID,
@@ -2128,6 +2136,18 @@ export function QuranReader({
 
           announceAudioPlaying(audio);
           await audio.play();
+
+          if (
+            selectedReciter.id === RIZGAR_RECITER_ID &&
+            timing
+          ) {
+            rizgarPendingSeekRef.current = timing.start;
+            try {
+              audio.currentTime = timing.start;
+            } catch {
+              // Ignore transient seek errors.
+            }
+          }
 
           if (requestId !== playRequestRef.current) {
             audio.pause();
@@ -2235,6 +2255,23 @@ export function QuranReader({
     if (!audio) return;
 
     const now = audio.currentTime;
+
+    // Rizgar-only: keep the requested ayah start enforced if the browser
+    // resets the playhead to 0:00 immediately after play().
+    if (selectedReciter?.id === RIZGAR_RECITER_ID) {
+      const pendingSeek = rizgarPendingSeekRef.current;
+      if (pendingSeek !== null) {
+        if (now + 0.15 < pendingSeek) {
+          try {
+            audio.currentTime = pendingSeek;
+          } catch {
+            // Ignore transient seek errors.
+          }
+          return;
+        }
+        rizgarPendingSeekRef.current = null;
+      }
+    }
 
     // Rizgar uses the same gapless model as the reference Android app:
     // one surah MP3 + cumulative ayah start points in timings(sura, ayah, time).
