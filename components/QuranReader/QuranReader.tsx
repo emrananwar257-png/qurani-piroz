@@ -1058,7 +1058,27 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
           let surah = Number.isInteger(rawSurah) ? rawSurah : inferredSurah ?? 0;
           let ayah = Number.isInteger(rawAyah) ? rawAyah : 0;
 
-          if ((!surah || surah < 1 || surah > 114 || !ayah || ayah < 1) && Number.isInteger(rawGlobalAyah)) {
+          // Some Rizgar Ayah Data tables are split by surah and use a
+          // generic "id"/"index" column that starts again at 1 in every
+          // table. In that layout it is a LOCAL ayah number, not a global
+          // Quran ayah number. Prefer the table's surah in that case.
+          if (
+            !ayah &&
+            inferredSurah &&
+            Number.isInteger(rawGlobalAyah) &&
+            rawGlobalAyah >= 1 &&
+            rawGlobalAyah <= (RIZGAR_AYAH_COUNTS[inferredSurah - 1] ?? 0)
+          ) {
+            surah = inferredSurah;
+            ayah = rawGlobalAyah;
+          }
+
+          // If the table does not identify its surah, a true global ayah
+          // number can still be mapped to surah/ayah normally.
+          if (
+            (!surah || surah < 1 || surah > 114 || !ayah || ayah < 1) &&
+            Number.isInteger(rawGlobalAyah)
+          ) {
             const mapped = getSurahAyahFromGlobal(rawGlobalAyah);
             if (mapped) {
               surah = mapped.surah;
