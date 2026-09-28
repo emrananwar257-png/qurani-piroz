@@ -2134,41 +2134,80 @@ export function QuranReader({
             }
           }
 
-          announceAudioPlaying(audio);
-          await audio.play();
+          const rizgarTarget =
+            selectedReciter.id === RIZGAR_RECITER_ID && timing
+              ? Math.max(0, timing.start)
+              : null;
 
-          if (
-            selectedReciter.id === RIZGAR_RECITER_ID &&
-            timing
-          ) {
-            rizgarPendingSeekRef.current = timing.start;
+          const enforceRizgarSeek = () => {
+            if (
+              rizgarTarget === null ||
+              requestId !== playRequestRef.current
+            ) {
+              return;
+            }
+
+            rizgarPendingSeekRef.current = rizgarTarget;
+
             try {
-              audio.currentTime = timing.start;
+              if (
+                Math.abs(audio.currentTime - rizgarTarget) > 0.15
+              ) {
+                audio.currentTime = rizgarTarget;
+              }
             } catch {
               // Ignore transient seek errors.
             }
+          };
+
+          if (rizgarTarget !== null) {
+            // Mobile browsers can reset currentTime to 0 while transitioning
+            // from "play requested" to "playing". Re-apply the target at the
+            // actual playing boundary as well as from timeupdate.
+            audio.addEventListener(
+              'playing',
+              enforceRizgarSeek,
+            );
+            audio.addEventListener(
+              'canplay',
+              enforceRizgarSeek,
+            );
           }
+
+          announceAudioPlaying(audio);
+          await audio.play();
+
+          enforceRizgarSeek();
 
           if (requestId !== playRequestRef.current) {
             audio.pause();
             return;
           }
 
-          // ڕزگار: دوای دەستپێکردنی HTMLAudioElement ـەکەش seek ـەکە
-          // دووبارە جێگیر بکە، بۆ ئەوەی هەرگیز لە 0:00 ـی سورەتەکە
-          // دەست پێ نەکات کاتێک ئایەتێکی دیاریکراو هەڵبژێردراوە.
-          if (
-            selectedReciter.id === RIZGAR_RECITER_ID &&
-            timing
-          ) {
-            try {
-              audio.currentTime = Math.max(
-                0,
-                timing.start,
-              );
-            } catch {
-              // Ignore transient seek errors.
-            }
+          if (rizgarTarget !== null) {
+            // One final enforcement after play() resolves.
+            enforceRizgarSeek();
+            window.setTimeout(
+              enforceRizgarSeek,
+              100,
+            );
+            window.setTimeout(
+              enforceRizgarSeek,
+              300,
+            );
+            window.setTimeout(
+              enforceRizgarSeek,
+              700,
+            );
+
+            audio.removeEventListener(
+              'playing',
+              enforceRizgarSeek,
+            );
+            audio.removeEventListener(
+              'canplay',
+              enforceRizgarSeek,
+            );
           }
 
           setIsPlaying(true);
