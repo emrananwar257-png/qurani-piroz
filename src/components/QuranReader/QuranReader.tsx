@@ -1988,28 +1988,10 @@ export function QuranReader({
         setIsPlaying(false);
         audio.pause();
 
-        // Rizgar must request playback immediately from the user's pointer
-        // gesture. Do this before ANY awaited timing/network work; otherwise
-        // mobile browsers can reject play() after the gesture has ended.
-        const rizgarPlayPromise =
-          selectedReciter.id === RIZGAR_RECITER_ID
-            ? (() => {
-                const src = makeSurahAudioUrl(
-                  selectedReciter,
-                  surahNumber,
-                );
-                // Start Rizgar muted inside the user's gesture. The browser can
-                // begin buffering/playing without letting the user hear 0:00.
-                // We then seek the already-playing element to the exact ayah time
-                // and unmute it. This avoids the mobile play()/seek race.
-                audio.muted = true;
-                audio.removeAttribute('src');
-                audio.load();
-                audio.src = src;
-                audio.load();
-                return audio.play();
-              })()
-            : null;
+        // Rizgar: do not start the audible MP3 at 0:00 and then try to
+        // move it. The browser is instructed to start the media itself at the
+        // requested ayah time via a media fragment (#t=seconds).
+        // We keep the element muted until the exact position is established.
 
         try {
           let rows: TimingRow[] = [];
@@ -2061,9 +2043,6 @@ export function QuranReader({
           );
 
           // هەر tap ـێک دەبێت audio source ـی سورەتی خۆی بە ڕوونی دابنێت.
-          // بۆ ڕزگار source ـەکە لە سەرەتا و پێش timing دانراوە و play()
-          // کراوە بۆ پاراستنی user gesture ـی مۆبایل؛ لێرەدا تەنها
-          // reciter ـە generic ـەکان source دادەنێن.
           if (selectedReciter.id !== RIZGAR_RECITER_ID) {
             audio.pause();
             try {
@@ -2081,11 +2060,34 @@ export function QuranReader({
             return;
           }
 
-          // Metadata must be ready before we seek to a Rizgar ayah.
-          // Rizgar is already playing silently from the user's gesture.
-          // We move that same playing element to the exact DB timestamp,
-          // then unmute it. No second play() is needed, so there is no
-          // opportunity for mobile Safari/Chrome to restart at 0:00.
+          // Rizgar uses the timing value in the media URL itself. This is
+          // intentionally different from the old "play at 0:00 -> seek"
+          // approach, which was restarting at 0:00 on the user's phone.
+          if (
+            selectedReciter.id === RIZGAR_RECITER_ID &&
+            timing
+          ) {
+            const rizgarStart = Math.max(0, timing.start);
+            const fragmentSrc =
+              rizgarStart > 0
+                ? `${src}#t=${rizgarStart.toFixed(3)}`
+                : src;
+
+            audio.muted = true;
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+            audio.src = fragmentSrc;
+            audio.load();
+
+            try {
+              await audio.play();
+            } catch {
+              // A muted media element can normally be started after the
+              // source is ready; the final play() below is the fallback.
+            }
+          }
+
           await waitForMetadata(audio);
 
           if (requestId !== playRequestRef.current) {
@@ -2152,20 +2154,9 @@ export function QuranReader({
             };
 
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
-              // The muted playback was started during the user's gesture.
-              // Wait until that request settles, then seek the SAME playback
-              // instance instead of pausing and starting a new one.
-              try {
-                await rizgarPlayPromise;
-              } catch {
-                // If the first play failed, the normal play() fallback below
-                // will make one final attempt.
-              }
-
-              if (requestId !== playRequestRef.current) {
-                return;
-              }
-
+              // The #t= fragment is the primary seek mechanism. Keep the
+              // currentTime assignment as a compatibility fallback for
+              // browsers that ignore media fragments on audio.
               rizgarPendingSeekRef.current = seekTo;
               await seekAudioTo(seekTo, true);
             } else {
@@ -2223,17 +2214,16 @@ export function QuranReader({
             }
 
             if (rizgarTarget !== null) {
-              // The audio has been playing silently while we sought.
-              // Unmute only after the exact ayah position is established.
-              audio.muted = false;
+              // Never expose the initial 0:00 position to the user.
+              // The media fragment has already selected the requested start;
+              // currentTime enforcement above is only a compatibility guard.
               enforceRizgarSeek();
 
-              // If muted playback was rejected by the browser, retry here
-              // while the playback request is still associated with this
-              // interaction. Otherwise the existing playback continues.
               if (audio.paused) {
                 await audio.play();
               }
+
+              audio.muted = false;
             } else {
               audio.muted = false;
               await audio.play();
