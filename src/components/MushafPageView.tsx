@@ -2740,8 +2740,12 @@ export const MushafPageView: React.FC<
 
       try {
         if (
+          (
           selectedReciter.audioSource ===
-          'mp3quran'
+            'mp3quran' ||
+          selectedReciter.audioSource ===
+            'ramadan_shakoor'
+        )
         ) {
           const downloaded =
             await isSurahAudioDownloaded(
@@ -3681,7 +3685,28 @@ export const MushafPageView: React.FC<
           }
         } else if (
           selectedReciter.audioSource ===
-          'mp3quran'
+          'ramadan_shakoor'
+        ) {
+          const timings =
+            await getRamadanShakoorTiming(
+              a.surahNumber
+            );
+
+          gaplessActiveTimingRef.current =
+            timings.length
+              ? {
+                  surahNumber:
+                    a.surahNumber,
+                  timings
+                }
+              : null;
+        } else if (
+          (
+          selectedReciter.audioSource ===
+            'mp3quran' ||
+          selectedReciter.audioSource ===
+            'ramadan_shakoor'
+        )
         ) {
           let timings =
             await loadManualTiming(
@@ -3915,8 +3940,12 @@ export const MushafPageView: React.FC<
         ) {
           /* No DB and no fallback timeline: keep the MP3 playable. */
         } else if (
+          (
           selectedReciter.audioSource ===
-          'mp3quran'
+            'mp3quran' ||
+          selectedReciter.audioSource ===
+            'ramadan_shakoor'
+        )
         ) {
           /*
            * Kurdish MP3Quran/GitHub sources are timing-backed above.
@@ -4104,7 +4133,28 @@ export const MushafPageView: React.FC<
               : null;
         } else if (
           selectedReciter.audioSource ===
-          'mp3quran'
+          'ramadan_shakoor'
+        ) {
+          const timings =
+            await getRamadanShakoorTiming(
+              ayah.surahNumber
+            );
+
+          gaplessActiveTimingRef.current =
+            timings.length
+              ? {
+                  surahNumber:
+                    ayah.surahNumber,
+                  timings
+                }
+              : null;
+        } else if (
+          (
+          selectedReciter.audioSource ===
+            'mp3quran' ||
+          selectedReciter.audioSource ===
+            'ramadan_shakoor'
+        )
         ) {
           /*
            * Use the exact MP3Quran ayah timing for page playback
@@ -5105,7 +5155,9 @@ export const MushafPageView: React.FC<
         (selectedReciter.audioSource ===
           'gapless' ||
           selectedReciter.audioSource ===
-            'mp3quran') &&
+            'mp3quran' ||
+          selectedReciter.audioSource ===
+            'ramadan_shakoor') &&
         gapless &&
         pageAyahsData.some(
           item =>
@@ -5287,7 +5339,8 @@ export const MushafPageView: React.FC<
     if (
       !isPlayingAudio ||
       (selectedReciter.audioSource !== 'gapless' &&
-        selectedReciter.audioSource !== 'mp3quran')
+        selectedReciter.audioSource !== 'mp3quran' &&
+        selectedReciter.audioSource !== 'ramadan_shakoor')
     ) {
       stopFrameSync();
       return;
@@ -5403,8 +5456,24 @@ export const MushafPageView: React.FC<
           currentSurah &&
           nextAyahNumber > currentSurah.ayahs
         ) {
-          nextSurahNumber =
-            currentAyah.surahNumber + 1;
+          if (
+            selectedReciter.audioSource ===
+            'ramadan_shakoor'
+          ) {
+            const available =
+              selectedReciter.availableSurahs ?? [];
+
+            nextSurahNumber =
+              available.find(
+                surah =>
+                  surah >
+                  currentAyah.surahNumber
+              ) ?? 0;
+          } else {
+            nextSurahNumber =
+              currentAyah.surahNumber + 1;
+          }
+
           nextAyahNumber = 1;
         }
 
