@@ -2388,9 +2388,8 @@ export function QuranReader({
       }
 
       // The Android DB reserves ayah 999 as the end-of-surah marker.
-      // fetchRizgarTimingFromDb converts that marker into the final row's
-      // end value, so only the final ayah may finish the audio here.
-      const lastTiming = surahRows[surahRows.length - 1];
+      // It is used to calculate the final ayah's end time, not to stop
+      // playback between ayahs.
       // Do not pause between ayahs. The single Rizgar surah MP3 is
       // continuous; timing points only move the audio highlight.
       return;
