@@ -2029,19 +2029,16 @@ export function QuranReader({
               }
             };
 
-            applySeek();
+            const waitForSeek = async () => {
+              applySeek();
 
-            await new Promise<void>(
-              (resolve) => {
-                if (
-                  Math.abs(
-                    audio.currentTime - target,
-                  ) <= 0.15
-                ) {
-                  resolve();
-                  return;
-                }
+              if (
+                Math.abs(audio.currentTime - target) <= 0.15
+              ) {
+                return;
+              }
 
+              await new Promise<void>((resolve) => {
                 let settled = false;
 
                 const finish = () => {
@@ -2055,11 +2052,10 @@ export function QuranReader({
                   resolve();
                 };
 
-                const timer =
-                  window.setTimeout(
-                    finish,
-                    1500,
-                  );
+                const timer = window.setTimeout(
+                  finish,
+                  1500,
+                );
 
                 audio.addEventListener(
                   'seeked',
@@ -2068,10 +2064,41 @@ export function QuranReader({
                 );
 
                 applySeek();
-              },
-            );
+              });
+            };
 
-            applySeek();
+            // Rizgar's MP3s are local Blob URLs at this point. On some
+            // mobile browsers, setting currentTime before the media has
+            // started does not actually move the decoder. Prime the media
+            // once from the user's gesture, seek while it is running, then
+            // pause before the normal playback starts.
+            if (selectedReciter.id === RIZGAR_RECITER_ID) {
+              await audio.play();
+              await waitForSeek();
+
+              if (
+                Math.abs(audio.currentTime - target) > 0.15
+              ) {
+                applySeek();
+                await waitForSeek();
+              }
+
+              audio.pause();
+              applySeek();
+            } else {
+              await waitForSeek();
+              applySeek();
+            }
+
+            if (
+              selectedReciter.id === RIZGAR_RECITER_ID &&
+              Math.abs(audio.currentTime - target) > 0.5
+            ) {
+              throw new Error(
+                'دەنگی ڕزگار نەیتوانی بۆ ئایەتی هەڵبژێردراو بگەڕێتەوە.',
+              );
+            }
+
             activeTimingRef.current =
               timing;
 
