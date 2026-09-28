@@ -28,7 +28,8 @@ const MP3QURAN_API_BASE =
 const RIZGAR_RECITER_ID = 'rizgar_kurdi';
 const RIZGAR_AUDIO_BASE =
   'https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/rzgar_kurdi_mutasil/';
-const RIZGAR_TIMING_BASE = '/ayah-timings/rizgar_kurdi';
+const RIZGAR_TIMING_DB_URL =
+  'https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/rzgar_kurdi_mutasil/rzgar_kurdi_mutasil.db';
 
 const RECITERS_CACHE_KEY =
   'quran_dynamic_kurdish_reciters_v2';
@@ -38,6 +39,7 @@ const TIMING_CACHE_KEY =
 
 const RAAD_RECITER_ID = 'raad_kurdi';
 const RAAD_TIMING_CACHE_KEY = 'quran_raad_kurdi_timing_v1';
+const RIZGAR_TIMING_CACHE_KEY = 'quran_rizgar_kurdi_timing_v1';
 const SQL_WASM_URL = 'https://sql.js.org/dist/sql-wasm.wasm';
 
 interface AyahData {
@@ -361,39 +363,11 @@ const makeRizgarReciter = (): DynamicReciter => ({
 async function fetchRizgarTiming(
   surahNumber: number,
 ): Promise<TimingRow[]> {
-  try {
-    const response = await fetch(
-      RIZGAR_TIMING_BASE + '/' + surahNumber + '.json',
-      { cache: 'no-store' },
-    );
-    if (!response.ok) return [];
+  const rows = await loadRizgarTimingRows();
 
-    const json = await response.json();
-    const rows = Array.isArray(json)
-      ? json
-      : Array.isArray(json?.timing)
-        ? json.timing
-        : Array.isArray(json?.ayahs)
-          ? json.ayahs
-          : Array.isArray(json?.data)
-            ? json.data
-            : [];
-
-    return rows
-      .map((row: any, index: number) => ({
-        ayah: Number(row?.ayah ?? row?.ayah_number ?? row?.number ?? index + 1),
-        start: normalizeTimingValue(row?.start_time ?? row?.start ?? 0),
-        end: normalizeTimingValue(row?.end_time ?? row?.end ?? 0),
-      }))
-      .filter(
-        (row: TimingRow) =>
-          Number.isFinite(row.ayah) &&
-          row.ayah >= 1 &&
-          row.end >= row.start,
-      );
-  } catch {
-    return [];
-  }
+  return rows.filter(
+    (row) => row.surah === surahNumber,
+  );
 }
 
 async function fetchDynamicKurdishReciters(): Promise<
@@ -700,6 +674,7 @@ const makeRaadReciter = (): DynamicReciter => {
 };
 
 let raadTimingRowsPromise: Promise<TimingRow[]> | null = null;
+let rizgarTimingRowsPromise: Promise<TimingRow[]> | null = null;
 
 const normalizeColumnName = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -964,7 +939,206 @@ const getInitialReciter = (
     // Ignore storage errors.
   }
 
-  return reciters[0] ?? null;
+  retuconst loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
+  if (rizgarTimingRowsPromise) {
+    return rizgarTimingRowsPromise;
+  }
+
+  rizgarTimingRowsPromise = (async () => {
+    const response = await fetch(RIZGAR_TIMING_DB_URL, {
+      cache: 'force-cache',
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Raad timing DB: ${response.status}`,
+      );
+    }
+
+    const buffer = await response.arrayBuffer();
+
+    const SQL = await initSqlJs({
+      locateFile: () => SQL_WASM_URL,
+    });
+
+    const db = new SQL.Database(
+      new Uint8Array(buffer),
+    );
+
+    try {
+      const tablesResult = db.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      );
+
+      const tableNames =
+        tablesResult[0]?.values
+          .map((row) => String(row[0]))
+          .filter(Boolean) ?? [];
+
+      const allRows: TimingRow[] = [];
+
+      for (const tableName of tableNames) {
+        const safeTableName = tableName.replace(/"/g, '""');
+
+        let infoResult: any[];
+        try {
+          infoResult = db.exec(
+            `PRAGMA table_info("${safeTableName}")`,
+          );
+        } catch {
+          continue;
+        }
+
+        const columns =
+          infoResult[0]?.values
+            .map((row) => String(row[1]))
+            .filter(Boolean) ?? [];
+
+        const surahColumn = pickTimingColumn(
+          columns,
+          [
+            'surah',
+            'sura',
+            'surah_number',
+            'sura_number',
+            'chapter',
+            'chapter_number',
+          ],
+        );
+
+        const ayahColumn = pickTimingColumn(
+          columns,
+          [
+            'ayah',
+            'aya',
+            'ayah_number',
+            'aya_number',
+            'verse',
+            'verse_number',
+          ],
+        );
+
+        const startColumn = pickTimingColumn(
+          columns,
+          [
+            'start',
+            'start_time',
+            'start_ms',
+            'starttime',
+            'from',
+            'begin',
+            'begin_time',
+          ],
+        );
+
+        const endColumn = pickTimingColumn(
+          columns,
+          [
+            'end',
+            'end_time',
+            'end_ms',
+            'endtime',
+            'to',
+            'finish',
+            'finish_time',
+          ],
+        );
+
+        if (
+          !surahColumn ||
+          !ayahColumn ||
+          !startColumn ||
+          !endColumn
+        ) {
+          continue;
+        }
+
+        const quote = (column: string) =>
+          `"${column.replace(/"/g, '""')}"`;
+
+        let result: any[];
+        try {
+          result = db.exec(
+            `SELECT ${quote(surahColumn)}, ${quote(ayahColumn)}, ${quote(startColumn)}, ${quote(endColumn)} FROM "${safeTableName}"`,
+          );
+        } catch {
+          continue;
+        }
+
+        const rows = result[0];
+        if (!rows) continue;
+
+        for (const row of rows.values) {
+          const surah = Number(row[0]);
+          const ayah = Number(row[1]);
+          const startRaw = Number(row[2]);
+          const endRaw = Number(row[3]);
+          const start =
+            Number.isFinite(startRaw) && startRaw > 1000
+              ? startRaw / 1000
+              : startRaw;
+          const end =
+            Number.isFinite(endRaw) && endRaw > 1000
+              ? endRaw / 1000
+              : endRaw;
+
+          if (
+            Number.isInteger(surah) &&
+            surah >= 1 &&
+            surah <= 114 &&
+            Number.isInteger(ayah) &&
+            ayah >= 1 &&
+            Number.isFinite(start) &&
+            Number.isFinite(end) &&
+            end >= start
+          ) {
+            allRows.push({
+              surah,
+              ayah,
+              start,
+              end,
+            });
+          }
+        }
+
+      }
+
+      if (!allRows.length) {
+        throw new Error(
+          'هیچ timing ـێکی دروست لە rzgar_kurdi_mutasil.db نەدۆزرایەوە.',
+        );
+      }
+
+      allRows.sort(
+        (a, b) =>
+          (a.surah ?? 0) - (b.surah ?? 0) ||
+          a.ayah - b.ayah,
+      );
+
+      try {
+        sessionStorage.setItem(
+          RIZGAR_TIMING_CACHE_KEY,
+          'loaded',
+        );
+      } catch {
+        // Ignore session storage errors.
+      }
+
+      return allRows;
+    } finally {
+      db.close();
+    }
+  })();
+
+  try {
+    return await rizgarTimingRowsPromise;
+  } catch (error) {
+    rizgarTimingRowsPromise = null;
+    throw error;
+  }
+};
+
+rn reciters[0] ?? null;
 };
 
 export function QuranReader({
