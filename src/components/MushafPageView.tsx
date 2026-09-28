@@ -3506,7 +3506,11 @@ export const MushafPageView: React.FC<
 
           // DB is authoritative; if it is unavailable, use a timeline
           // derived from this exact surah MP3 so the highlight still moves.
-          if (!timings?.length && surahInfo?.ayahs) {
+          if (
+            selectedReciter.id !== 'rizgar_kurdi' &&
+            !timings?.length &&
+            surahInfo?.ayahs
+          ) {
             const audio = audioRef.current;
             if (audio) {
               if (audio.readyState < 1) {
@@ -3557,7 +3561,8 @@ export const MushafPageView: React.FC<
 
           if (
             !timings.length &&
-            selectedReciter.category === 'kurdish'
+            selectedReciter.category === 'kurdish' &&
+            selectedReciter.id !== 'rizgar_kurdi'
           ) {
             const timingUrl =
               selectedReciter.audioBaseUrl
@@ -3631,6 +3636,14 @@ export const MushafPageView: React.FC<
           ) {
             audio.load();
           }
+        } else if (
+          selectedReciter.id === 'rizgar_kurdi'
+        ) {
+          /*
+           * Rizgar uses one MP3 per surah. Re-load even when the URL
+           * is unchanged so an old seek/end state cannot block a new ayah.
+           */
+          audio.load();
         }
 
         /*
@@ -3639,8 +3652,7 @@ export const MushafPageView: React.FC<
          * browsers and lets the exact ayah timing seek safely.
          */
         if (
-          selectedReciter.id === 'rizgar_kurdi' &&
-          audio.readyState < 1
+          selectedReciter.id === 'rizgar_kurdi'
         ) {
           await new Promise<void>((resolve, reject) => {
             const onLoaded = () => {
