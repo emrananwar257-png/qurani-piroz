@@ -1385,6 +1385,10 @@ export function QuranReader({
   const rizgarPendingSeekRef =
     useRef<number | null>(null);
 
+  // Rizgar-only: keep the audio highlight clock running smoothly on mobile.
+  const rizgarHighlightRafRef =
+    useRef<number | null>(null);
+
   const playRequestRef =
     useRef(0);
 
@@ -2597,6 +2601,68 @@ export function QuranReader({
     selectedReciter,
     selectedSurahNumber,
     timingRows,
+  ]);
+
+  // Rizgar-only: timeupdate can be throttled on mobile browsers.
+  // Follow the actual audio clock with requestAnimationFrame while playing.
+  useEffect(() => {
+    const audio = audioRef.current;
+
+    const stopLoop = () => {
+      if (rizgarHighlightRafRef.current !== null) {
+        cancelAnimationFrame(rizgarHighlightRafRef.current);
+        rizgarHighlightRafRef.current = null;
+      }
+    };
+
+    if (
+      !audio ||
+      selectedReciter?.id !== RIZGAR_RECITER_ID
+    ) {
+      stopLoop();
+      return;
+    }
+
+    const tick = () => {
+      if (audio.paused || audio.ended) {
+        rizgarHighlightRafRef.current = null;
+        return;
+      }
+
+      handleTimeUpdate();
+      rizgarHighlightRafRef.current = requestAnimationFrame(tick);
+    };
+
+    const startLoop = () => {
+      if (
+        rizgarHighlightRafRef.current === null
+      ) {
+        rizgarHighlightRafRef.current =
+          requestAnimationFrame(tick);
+      }
+    };
+
+    const handlePause = () => stopLoop();
+
+    audio.addEventListener('play', startLoop);
+    audio.addEventListener('playing', startLoop);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('ended', handlePause);
+
+    if (!audio.paused) {
+      startLoop();
+    }
+
+    return () => {
+      audio.removeEventListener('play', startLoop);
+      audio.removeEventListener('playing', startLoop);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('ended', handlePause);
+      stopLoop();
+    };
+  }, [
+    handleTimeUpdate,
+    selectedReciter?.id,
   ]);
 
   const handleEnded =
