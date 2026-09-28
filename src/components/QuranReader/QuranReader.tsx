@@ -1389,6 +1389,23 @@ export function QuranReader({
   const rizgarHighlightRafRef =
     useRef<number | null>(null);
 
+  // Rizgar-only Web Audio engine. HTMLAudioElement.currentTime is unreliable
+  // on some mobile browsers, so seek/playback uses a decoded AudioBuffer.
+  const rizgarAudioContextRef =
+    useRef<AudioContext | null>(null);
+  const rizgarAudioBufferCacheRef =
+    useRef(new Map<number, AudioBuffer>());
+  const rizgarAudioSourceRef =
+    useRef<AudioBufferSourceNode | null>(null);
+  const rizgarWebAudioStartedAtRef =
+    useRef(0);
+  const rizgarWebAudioOffsetRef =
+    useRef(0);
+  const rizgarWebAudioTimeRef =
+    useRef(0);
+  const rizgarWebAudioPlayingRef =
+    useRef(false);
+
   // Rizgar-only: keep a local Blob URL for the active surah. Some mobile
   // browsers do not reliably seek GitHub-hosted MP3s, even when currentTime
   // and media fragments are set correctly. A local Blob makes the MP3 fully
@@ -2105,7 +2122,24 @@ export function QuranReader({
         activeTimingRef.current = null;
         setPlayingAyah(null);
         setIsPlaying(false);
-        audio.pause();
+
+        if (selectedReciter.id === RIZGAR_RECITER_ID) {
+          const oldSource = rizgarAudioSourceRef.current;
+          if (oldSource) {
+            try {
+              oldSource.stop();
+            } catch {
+              // Already stopped.
+            }
+            oldSource.disconnect();
+            rizgarAudioSourceRef.current = null;
+          }
+          rizgarWebAudioPlayingRef.current = false;
+          rizgarWebAudioOffsetRef.current = 0;
+          rizgarWebAudioTimeRef.current = 0;
+        } else {
+          audio.pause();
+        }
 
         // Rizgar: do not start the audible MP3 at 0:00 and then try to
         // move it. The browser is instructed to start the media itself at the
@@ -2210,22 +2244,95 @@ export function QuranReader({
             return;
           }
 
-          // Rizgar now uses a local Blob URL. This is the key change:
-          // the browser has the complete MP3 locally, so seeking to the DB
-          // timestamp does not depend on GitHub HTTP range/seek behavior.
+          // Rizgar uses Web Audio instead of HTMLAudioElement.currentTime.
+          // AudioBufferSourceNode.start() receives the exact DB timestamp,
+          // bypassing unreliable mobile media seeking.
           if (selectedReciter.id === RIZGAR_RECITER_ID) {
-            audio.muted = true;
-            audio.pause();
-            audio.removeAttribute('src');
-            audio.load();
-            audio.src = src;
-            audio.load();
-
-            try {
-              await audio.play();
-            } catch {
-              // Final play() below is the fallback.
+            let audioContext = rizgarAudioContextRef.current;
+            if (!audioContext) {
+              audioContext = new AudioContext();
+              rizgarAudioContextRef.current = audioContext;
             }
+
+            if (audioContext.state === 'suspended') {
+              await audioContext.resume();
+            }
+
+            let audioBuffer =
+              rizgarAudioBufferCacheRef.current.get(surahNumber);
+
+            if (!audioBuffer) {
+              const response = await fetch(remoteSrc, {
+                cache: 'force-cache',
+              });
+              if (!response.ok) {
+                throw new Error(
+                  `Rizgar audio HTTP ${response.status}`,
+                );
+              }
+
+              const arrayBuffer = await response.arrayBuffer();
+              audioBuffer =
+                await audioContext.decodeAudioData(arrayBuffer);
+              rizgarAudioBufferCacheRef.current.set(
+                surahNumber,
+                audioBuffer,
+              );
+            }
+
+            if (requestId !== playRequestRef.current) return;
+
+            if (!timing) {
+              throw new Error(
+                'کاتی دەنگی ڕزگار بۆ ئەم ئایەتە نەدۆزرایەوە.',
+              );
+            }
+
+            const startOffset = Math.max(
+              0,
+              Math.min(
+                timing.start,
+                Math.max(0, audioBuffer.duration - 0.01),
+              ),
+            );
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+
+            rizgarAudioSourceRef.current = source;
+            rizgarWebAudioOffsetRef.current = startOffset;
+            rizgarWebAudioStartedAtRef.current =
+              audioContext.currentTime - startOffset;
+            rizgarWebAudioTimeRef.current = startOffset;
+            rizgarWebAudioPlayingRef.current = true;
+
+            source.onended = () => {
+              if (rizgarAudioSourceRef.current !== source) return;
+              rizgarAudioSourceRef.current = null;
+              rizgarWebAudioPlayingRef.current = false;
+              rizgarWebAudioTimeRef.current = audioBuffer.duration;
+              setIsPlaying(false);
+              setIsLoading(false);
+            };
+
+            source.start(0, startOffset);
+
+            activeTimingRef.current = timing;
+            setPlayingAyah({
+              page: currentPage,
+              surahNumber,
+              ayahNumber,
+            });
+            setRizgarAudioHighlightedAyah({
+              page: currentPage,
+              surahNumber,
+              ayahNumber,
+            });
+
+            announceAudioPlaying(audio);
+            setIsPlaying(true);
+            return;
           }
 
           await waitForMetadata(audio);
@@ -2455,10 +2562,73 @@ export function QuranReader({
 
   const togglePlayPause =
     useCallback(() => {
-      const audio = audioRef.current;
-      if (!audio || playingAyah === null) {
+      if (playingAyah === null) return;
+
+      if (selectedReciter?.id === RIZGAR_RECITER_ID) {
+        const context = rizgarAudioContextRef.current;
+        const source = rizgarAudioSourceRef.current;
+        if (!context || !source?.buffer) return;
+
+        if (rizgarWebAudioPlayingRef.current) {
+          const elapsed =
+            context.currentTime -
+            rizgarWebAudioStartedAtRef.current;
+
+          rizgarWebAudioOffsetRef.current =
+            Math.max(0, elapsed);
+          rizgarWebAudioTimeRef.current =
+            rizgarWebAudioOffsetRef.current;
+
+          try {
+            source.stop();
+          } catch {
+            // Already stopped.
+          }
+          source.disconnect();
+          rizgarAudioSourceRef.current = null;
+          rizgarWebAudioPlayingRef.current = false;
+          setIsPlaying(false);
+          return;
+        }
+
+        const buffer = source.buffer;
+        const offset = Math.min(
+          rizgarWebAudioOffsetRef.current,
+          Math.max(0, buffer.duration - 0.01),
+        );
+        const nextSource =
+          context.createBufferSource();
+
+        nextSource.buffer = buffer;
+        nextSource.connect(context.destination);
+        rizgarAudioSourceRef.current = nextSource;
+        rizgarWebAudioStartedAtRef.current =
+          context.currentTime - offset;
+        rizgarWebAudioTimeRef.current = offset;
+        rizgarWebAudioPlayingRef.current = true;
+
+        nextSource.onended = () => {
+          if (rizgarAudioSourceRef.current !== nextSource) return;
+          rizgarAudioSourceRef.current = null;
+          rizgarWebAudioPlayingRef.current = false;
+          rizgarWebAudioTimeRef.current = buffer.duration;
+          setIsPlaying(false);
+        };
+
+        void context.resume().then(() => {
+          if (rizgarAudioSourceRef.current === nextSource) {
+            nextSource.start(0, offset);
+            announceAudioPlaying(
+              audioRef.current as HTMLAudioElement,
+            );
+            setIsPlaying(true);
+          }
+        });
         return;
       }
+
+      const audio = audioRef.current;
+      if (!audio) return;
 
       if (audio.paused) {
         announceAudioPlaying(audio);
@@ -2477,30 +2647,17 @@ export function QuranReader({
     }, [
       announceAudioPlaying,
       playingAyah,
+      selectedReciter?.id,
     ]);
 
   const handleTimeUpdate = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const now = audio.currentTime;
-
-    // Rizgar-only: keep the requested ayah start enforced if the browser
-    // resets the playhead to 0:00 immediately after play().
-    if (selectedReciter?.id === RIZGAR_RECITER_ID) {
-      const pendingSeek = rizgarPendingSeekRef.current;
-      if (pendingSeek !== null) {
-        if (now + 0.15 < pendingSeek) {
-          try {
-            audio.currentTime = pendingSeek;
-          } catch {
-            // Ignore transient seek errors.
-          }
-          return;
-        }
-        rizgarPendingSeekRef.current = null;
-      }
-    }
+    const now =
+      selectedReciter?.id === RIZGAR_RECITER_ID
+        ? rizgarWebAudioTimeRef.current
+        : audio.currentTime;
 
     // Rizgar uses the same gapless model as the reference Android app:
     // one surah MP3 + cumulative ayah start points in timings(sura, ayah, time).
