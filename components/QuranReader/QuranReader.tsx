@@ -1141,8 +1141,6 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
   }
 };
 
-rn reciters[0] ?? null;
-};
 export function QuranReader({
   currentPage,
   onNextPage,
