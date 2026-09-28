@@ -947,6 +947,14 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
     return rizgarTimingRowsPromise;
   }
 
+  // Rizgar uses the original Hiwa Salih release asset directly:
+  //   - the 114 MP3 files from the rzgar_kurdi_mutasil release
+  //   - rzgar_kurdi_mutasil.db as the Ayah Data/timing source
+  //
+  // The DB is intentionally parsed as an Ayah Data database here rather than
+  // going through the generic MP3Quran timing system. Some versions of the
+  // database store the surah number in the table name instead of a "surah"
+  // column, so both layouts are supported.
   rizgarTimingRowsPromise = (async () => {
     const response = await fetch(RIZGAR_TIMING_DB_URL, {
       cache: 'force-cache',
@@ -954,7 +962,7 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
 
     if (!response.ok) {
       throw new Error(
-        `Raad timing DB: ${response.status}`,
+        `Rizgar Ayah Data DB: ${response.status}`,
       );
     }
 
@@ -967,6 +975,47 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
     const db = new SQL.Database(
       new Uint8Array(buffer),
     );
+
+    const inferSurahFromTableName = (
+      tableName: string,
+    ): number | null => {
+      const normalized = tableName.trim();
+
+      const direct = Number(normalized);
+      if (
+        Number.isInteger(direct) &&
+        direct >= 1 &&
+        direct <= 114
+      ) {
+        return direct;
+      }
+
+      const match = normalized.match(
+        /(?:surah|sura|chapter)[_ -]?(\\d{1,3})$/i,
+      );
+
+      if (!match) return null;
+
+      const value = Number(match[1]);
+
+      return Number.isInteger(value) &&
+        value >= 1 &&
+        value <= 114
+        ? value
+        : null;
+    };
+
+    const normalizeTime = (value: unknown): number => {
+      const number = Number(value);
+
+      if (!Number.isFinite(number) || number < 0) {
+        return 0;
+      }
+
+      return number > 1000
+        ? number / 1000
+        : number;
+    };
 
     try {
       const tablesResult = db.exec(
@@ -981,9 +1030,13 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
       const allRows: TimingRow[] = [];
 
       for (const tableName of tableNames) {
-        const safeTableName = tableName.replace(/"/g, '""');
+        const safeTableName = tableName.replace(
+          /"/g,
+          '""',
+        );
 
         let infoResult: any[];
+
         try {
           infoResult = db.exec(
             `PRAGMA table_info("${safeTableName}")`,
@@ -1018,6 +1071,8 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
             'aya_number',
             'verse',
             'verse_number',
+            'verse_id',
+            'ayah_id',
           ],
         );
 
@@ -1028,6 +1083,7 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
             'start_time',
             'start_ms',
             'starttime',
+            'start_at',
             'from',
             'begin',
             'begin_time',
@@ -1041,6 +1097,7 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
             'end_time',
             'end_ms',
             'endtime',
+            'end_at',
             'to',
             'finish',
             'finish_time',
@@ -1048,7 +1105,6 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
         );
 
         if (
-          !surahColumn ||
           !ayahColumn ||
           !startColumn ||
           !endColumn
@@ -1060,9 +1116,19 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
           `"${column.replace(/"/g, '""')}"`;
 
         let result: any[];
+
         try {
+          const selectedColumns = [
+            surahColumn
+              ? quote(surahColumn)
+              : null,
+            quote(ayahColumn),
+            quote(startColumn),
+            quote(endColumn),
+          ].filter(Boolean).join(', ');
+
           result = db.exec(
-            `SELECT ${quote(surahColumn)}, ${quote(ayahColumn)}, ${quote(startColumn)}, ${quote(endColumn)} FROM "${safeTableName}"`,
+            `SELECT ${selectedColumns} FROM "${safeTableName}"`,
           );
         } catch {
           continue;
@@ -1071,19 +1137,21 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
         const rows = result[0];
         if (!rows) continue;
 
+        const inferredSurah =
+          inferSurahFromTableName(tableName);
+
         for (const row of rows.values) {
-          const surah = Number(row[0]);
-          const ayah = Number(row[1]);
-          const startRaw = Number(row[2]);
-          const endRaw = Number(row[3]);
-          const start =
-            Number.isFinite(startRaw) && startRaw > 1000
-              ? startRaw / 1000
-              : startRaw;
-          const end =
-            Number.isFinite(endRaw) && endRaw > 1000
-              ? endRaw / 1000
-              : endRaw;
+          const offset = surahColumn ? 1 : 0;
+          const surah = surahColumn
+            ? Number(row[0])
+            : Number(inferredSurah ?? 0);
+          const ayah = Number(row[offset]);
+          const start = normalizeTime(
+            row[offset + 1],
+          );
+          const end = normalizeTime(
+            row[offset + 2],
+          );
 
           if (
             Number.isInteger(surah) &&
@@ -1103,19 +1171,19 @@ const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
             });
           }
         }
-
       }
 
       if (!allRows.length) {
         throw new Error(
-          'هیچ timing ـێکی دروست لە rzgar_kurdi_mutasil.db نەدۆزرایەوە.',
+          'هیچ Ayah Data ـێکی دروست لە rzgar_kurdi_mutasil.db نەدۆزرایەوە.',
         );
       }
 
       allRows.sort(
         (a, b) =>
           (a.surah ?? 0) - (b.surah ?? 0) ||
-          a.ayah - b.ayah,
+          a.ayah - b.ayah ||
+          a.start - b.start,
       );
 
       try {
