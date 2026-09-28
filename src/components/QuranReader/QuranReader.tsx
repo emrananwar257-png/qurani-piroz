@@ -1157,7 +1157,7 @@ async function fetchRizgarTimingFromDb(
   }
 
   const localUrl =
-    `${import.meta.env.BASE_URL}gapless-timing/${RIZGAR_RECITER_ID}.db`;
+    \`${import.meta.env.BASE_URL}gapless-timing/${RIZGAR_RECITER_ID}.db\`;
 
   const candidates = [
     localUrl,
@@ -1197,7 +1197,7 @@ async function fetchRizgarTimingFromDb(
 
   try {
     const quote = (value: string) =>
-      `"${value.replace(/"/g, '""')}"`;
+      \`"${value.replace(/"/g, '""')}"\`;
 
     const normalize = (value: string) =>
       value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1241,14 +1241,23 @@ async function fetchRizgarTimingFromDb(
         .map((row) => String(row[0] ?? ''))
         .filter(Boolean) ?? [];
 
-    const collected: TimingRow[] = [];
+    type TableInfo = {
+      name: string;
+      surahColumn: string | null;
+      ayahColumn: string;
+      startColumn: string;
+      endColumn: string | null;
+      tableSurah: number | null;
+    };
+
+    const compatibleTables: TableInfo[] = [];
 
     for (const tableName of tableNames) {
       let infoResult: any[];
 
       try {
         infoResult = db.exec(
-          `PRAGMA table_info(${quote(tableName)})`,
+          \`PRAGMA table_info(${quote(tableName)})\`,
         );
       } catch {
         continue;
@@ -1281,6 +1290,7 @@ async function fetchRizgarTimingFromDb(
         'verse',
         'verse_number',
         'versenumber',
+        'verse_number_in_surah',
       ]);
 
       const startColumn = findColumn(columns, [
@@ -1292,6 +1302,7 @@ async function fetchRizgarTimingFromDb(
         'time',
         'time_ms',
         'timestamp',
+        'timestamp_start',
         'from',
         'begin',
         'begin_time',
@@ -1303,6 +1314,7 @@ async function fetchRizgarTimingFromDb(
         'end_ms',
         'endtime',
         'endtimems',
+        'timestamp_end',
         'to',
         'finish',
         'finish_time',
@@ -1312,28 +1324,78 @@ async function fetchRizgarTimingFromDb(
         continue;
       }
 
-      const tableSurah = inferSurahFromTable(tableName);
+      compatibleTables.push({
+        name: tableName,
+        surahColumn,
+        ayahColumn,
+        startColumn,
+        endColumn,
+        tableSurah: inferSurahFromTable(tableName),
+      });
+    }
 
-      if (
-        !surahColumn &&
-        tableSurah !== null &&
-        tableSurah !== surahNumber
-      ) {
-        continue;
-      }
+    if (!compatibleTables.length) {
+      throw new Error(
+        'هیچ خشتەی timing ـی گونجاو بۆ ڕزگار نەدۆزرایەوە.',
+      );
+    }
 
+    // ڕزگار لە DB ـەکەی خۆیدا دەتوانێت timing ـەکان بە
+    // خشتەی جیاواز بۆ هەر سۆرەت هەڵبگرێت. لەو حاڵەتەدا
+    // ناوی خشتەکە ناسنامەی سۆرەتەکەیە، نەک column ـێکی surah.
+    // هەروەها هەندێک وەشانی DB هەموو ١١٤ سۆرەت بە خشتەی
+    // جیاواز هەڵدەگرن بەبێ ژمارەی سۆرەت لە ناو row ـەکان.
+    const exactTables = compatibleTables.filter(
+      (table) =>
+        table.surahColumn !== null
+          ? true
+          : table.tableSurah === surahNumber,
+    );
+
+    let selectedTables = exactTables;
+
+    // ئەگەر DB ـەکە ١١٤ خشتەی timing ـی یەکسانی هەبێت و
+    // هیچ surah column ـێکی تێدا نەبێت، index ـی خشتەکان
+    // بە ژمارەی سۆرەت وەردەگیرێت.
+    if (
+      selectedTables.length === 0 &&
+      compatibleTables.length === 114 &&
+      compatibleTables.every(
+        (table) => table.surahColumn === null,
+      )
+    ) {
+      selectedTables = [
+        compatibleTables[surahNumber - 1],
+      ].filter(Boolean);
+    }
+
+    if (selectedTables.length === 0) {
+      throw new Error(
+        \`ناسنامەی سۆرەتی ${surahNumber} لە DB ـی ڕزگار بە دڵنیایی نەدۆزرایەوە.\`,
+      );
+    }
+
+    const collected: TimingRow[] = [];
+
+    for (const table of selectedTables) {
       const selected = [
-        surahColumn ? quote(surahColumn) : null,
-        quote(ayahColumn),
-        quote(startColumn),
-        endColumn ? quote(endColumn) : null,
-      ].filter(Boolean).join(', ');
+        table.surahColumn
+          ? quote(table.surahColumn)
+          : null,
+        quote(table.ayahColumn),
+        quote(table.startColumn),
+        table.endColumn
+          ? quote(table.endColumn)
+          : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
 
       let result: any[];
 
       try {
         result = db.exec(
-          `SELECT ${selected} FROM ${quote(tableName)}`,
+          \`SELECT ${selected} FROM ${quote(table.name)}\`,
         );
       } catch {
         continue;
@@ -1344,13 +1406,13 @@ async function fetchRizgarTimingFromDb(
       for (const row of values) {
         let offset = 0;
 
-        const rowSurah = surahColumn
+        const rowSurah = table.surahColumn
           ? Number(row[offset++])
-          : tableSurah;
+          : surahNumber;
 
         const ayah = Number(row[offset++]);
         const startRaw = Number(row[offset++]);
-        const endRaw = endColumn
+        const endRaw = table.endColumn
           ? Number(row[offset])
           : NaN;
 
@@ -1422,7 +1484,7 @@ async function fetchRizgarTimingFromDb(
 
     if (!rows.length) {
       throw new Error(
-        `هیچ timing ـێکی ڕزگار بۆ سورەتی ${surahNumber} نەدۆزرایەوە.`,
+        \`هیچ timing ـێکی ڕزگار بۆ سورەتی ${surahNumber} نەدۆزرایەوە.\`,
       );
     }
 
@@ -1431,7 +1493,6 @@ async function fetchRizgarTimingFromDb(
     db.close();
   }
 }
-
 async function fetchRaadTiming(
   surahNumber: number,
 ): Promise<TimingRow[]> {
@@ -2059,9 +2120,14 @@ export function QuranReader({
               surahNumber,
             );
           } catch (timingError) {
-            // Timing must never block audio playback. If a timing DB has
-            // a different schema or is temporarily unavailable, play the
-            // surah audio and keep highlighting disabled until timing works.
+            // ڕزگار gapless ـە؛ ئەگەر timing نەدۆزرایەوە نابێت
+            // بە 0 ـەوە دەست پێ بکات، چونکە ئەوە وا دەکات هەر
+            // ئایەتێک لە سەرەتای سۆرەت بخوێندرێت.
+            if (selectedReciter.id === RIZGAR_RECITER_ID) {
+              throw timingError;
+            }
+
+            // Timing must not block the other reciters.
             console.warn(
               'Gapless timing unavailable:',
               timingError,
