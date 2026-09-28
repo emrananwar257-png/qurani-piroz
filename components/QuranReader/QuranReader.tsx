@@ -939,7 +939,10 @@ const getInitialReciter = (
     // Ignore storage errors.
   }
 
-  retuconst loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
+  return reciters[0] ?? null;
+};
+
+const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
   if (rizgarTimingRowsPromise) {
     return rizgarTimingRowsPromise;
   }
@@ -1140,7 +1143,6 @@ const getInitialReciter = (
 
 rn reciters[0] ?? null;
 };
-
 export function QuranReader({
   currentPage,
   onNextPage,
