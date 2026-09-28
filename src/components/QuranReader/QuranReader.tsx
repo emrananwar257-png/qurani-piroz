@@ -1321,6 +1321,17 @@ async function fetchRaadTiming(
   );
 }
 
+const findTimingRow = (
+  rows: TimingRow[],
+  surahNumber: number,
+  ayahNumber: number,
+): TimingRow | null =>
+  rows.find(
+    (row) =>
+      (row.surah === undefined || row.surah === surahNumber) &&
+      row.ayah === ayahNumber,
+  ) ?? null;
+
 const getInitialReciter = (
   reciters: DynamicReciter[],
 ): DynamicReciter | null => {
@@ -1388,6 +1399,12 @@ export function QuranReader({
 
   const playRequestRef =
     useRef(0);
+
+  // Keep Rizgar's next-surah request alive while the Mushaf page changes.
+  const rizgarContinuationRef = useRef<{
+    surahNumber: number;
+    ayahNumber: number;
+  } | null>(null);
 
   const [reciters, setReciters] =
     useState<DynamicReciter[]>(() => {
@@ -1607,8 +1624,6 @@ export function QuranReader({
     activeTimingRef.current = null;
     loadingPlayRef.current = false;
 
-    stopRizgarWebAudio();
-
     if (audio) {
       audio.pause();
       audio.removeAttribute('src');
@@ -1654,7 +1669,6 @@ export function QuranReader({
       ++playRequestRef.current;
       activeTimingRef.current = null;
       const audio = audioRef.current;
-      stopRizgarWebAudio();
 
       if (audio) {
         audio.pause();
@@ -1662,7 +1676,10 @@ export function QuranReader({
         audio.load();
       }
 
-
+      if (rizgarObjectUrlRef.current) {
+        URL.revokeObjectURL(rizgarObjectUrlRef.current);
+        rizgarObjectUrlRef.current = null;
+      }
 
 
 
@@ -2115,6 +2132,38 @@ export function QuranReader({
       ],
     );
 
+
+  useEffect(() => {
+    if (selectedReciter?.id !== RIZGAR_RECITER_ID) return;
+
+    const continuation = rizgarContinuationRef.current;
+    if (!continuation || !ayahs.length) return;
+
+    const found = ayahs.some(
+      (ayah) =>
+        Number(
+          ayah?.surahNumber ??
+            (ayah as any)?.surah?.number ??
+            0,
+        ) === continuation.surahNumber &&
+        Number(
+          ayah?.ayah ??
+            ayah?.numberInSurah ??
+            0,
+        ) === continuation.ayahNumber,
+    );
+
+    if (!found) return;
+
+    rizgarContinuationRef.current = null;
+    void playAyah(continuation);
+  }, [
+    ayahs,
+    currentPage,
+    playAyah,
+    selectedReciter?.id,
+  ]);
+
   const stopAudio =
     useCallback(() => {
       ++playRequestRef.current;
@@ -2173,182 +2222,228 @@ export function QuranReader({
       if (!audio) return;
 
       const now = audio.currentTime;
-      const activeTiming =
-        activeTimingRef.current;
+      const activeTiming = activeTimingRef.current;
+      const current = playingAyah;
 
-      if (!activeTiming) return;
+      if (!activeTiming || !current) return;
 
       const end = Math.max(
         activeTiming.end,
         activeTiming.start + 0.05,
       );
 
-      if (now >= end - 0.02) {
-        audio.pause();
-        setIsPlaying(false);
-
-        const current = playingAyah;
+      if (now < end - 0.02) {
+        // The audio clock is the source of truth for the active ayah.
         if (
-          !current ||
-          current.page !== currentPage
+          !ayahs.length ||
+          !timingRows.length
         ) {
-          activeTimingRef.current = null;
           return;
         }
 
-        const currentIndex =
-          ayahs.findIndex(
-            (item) =>
-              Number(
-                item?.surahNumber ??
-                  (item as any)?.surah?.number ??
-                  0,
-              ) === current.surahNumber &&
-              Number(
-                item?.ayah ??
-                  item?.numberInSurah ??
-                  0,
-              ) === current.ayahNumber,
-          );
-
-        const nextIndex =
-          ayahs.findIndex(
-            (ayah, index) =>
-              index > currentIndex &&
-              Number(
-                ayah?.surahNumber ??
-                  (ayah as any)?.surah?.number ??
-                  0,
-              ) === current.surahNumber,
-          );
-
-        if (
-          nextIndex >= 0 &&
-          nextIndex < ayahs.length
-        ) {
-          const nextAyah =
-            ayahs[nextIndex];
-
-          const nextAyahNumber =
-            Number(
-              nextAyah?.ayah ??
-                nextAyah?.numberInSurah ??
-                nextIndex + 1,
-            );
-
-          const nextTiming =
-            timingRows.find(
-              (row) =>
-                (row.surah === undefined ||
-                  row.surah ===
-                    current.surahNumber) &&
-                row.ayah === nextAyahNumber,
-            );
-
-          if (nextTiming) {
-            activeTimingRef.current =
-              nextTiming;
-
-            setPlayingAyah({
-              page: currentPage,
-              surahNumber:
-                current.surahNumber,
-              ayahNumber:
-                nextAyahNumber,
-            });
-
-            try {
-              audio.currentTime =
-                Math.max(
-                  0,
-                  nextTiming.start,
-                );
-            } catch {
-              // Ignore.
-            }
-
-            announceAudioPlaying(audio);
-            audio
-              .play()
-              .then(() =>
-                setIsPlaying(true),
-              )
-              .catch(() =>
-                setError(
-                  'دەنگەکە نەکرا بەردەوام بکرێت.',
-                ),
-              );
-            return;
-          }
-        }
-
-        activeTimingRef.current = null;
-        setPlayingAyah(null);
-        return;
-      }
-
-      if (
-        playingAyah === null ||
-        !ayahs.length ||
-        !timingRows.length
-      ) return;
-
-      const activeSurahNumber =
-        playingAyah.surahNumber ??
-        selectedSurahNumber;
-
-      const index =
-        getCurrentPageAyahIndex(
+        const index = getCurrentPageAyahIndex(
           now,
           timingRows,
           ayahs,
-          activeSurahNumber,
+          current.surahNumber,
         );
 
-      if (index >= 0) {
-        const currentAyah =
-          ayahs[index];
-
-        const currentSurahNumber =
-          Number(
+        if (index >= 0) {
+          const currentAyah = ayahs[index];
+          const currentSurahNumber = Number(
             currentAyah?.surahNumber ??
               (currentAyah as any)?.surah?.number ??
-              activeSurahNumber,
+              current.surahNumber,
           );
-
-        const currentAyahNumber =
-          Number(
+          const currentAyahNumber = Number(
             currentAyah?.ayah ??
               currentAyah?.numberInSurah ??
               index + 1,
           );
 
-        if (
-          playingAyah.page !== currentPage ||
-          playingAyah.surahNumber !==
-            currentSurahNumber ||
-          playingAyah.ayahNumber !==
-            currentAyahNumber
-        ) {
+          if (
+            current.surahNumber !== currentSurahNumber ||
+            current.ayahNumber !== currentAyahNumber
+          ) {
+            const row = findTimingRow(
+              timingRows,
+              currentSurahNumber,
+              currentAyahNumber,
+            );
+
+            if (row) {
+              activeTimingRef.current = row;
+              setPlayingAyah({
+                page: currentPage,
+                surahNumber: currentSurahNumber,
+                ayahNumber: currentAyahNumber,
+              });
+            }
+          }
+        }
+
+        return;
+      }
+
+      // Exact timing boundary reached.
+      audio.pause();
+      setIsPlaying(false);
+
+      const currentIndex = ayahs.findIndex(
+        (item) =>
+          Number(
+            item?.surahNumber ??
+              (item as any)?.surah?.number ??
+              0,
+          ) === current.surahNumber &&
+          Number(
+            item?.ayah ??
+              item?.numberInSurah ??
+              0,
+          ) === current.ayahNumber,
+      );
+
+      // Continue to the next ayah of the same surah.
+      const nextSameSurah = ayahs.findIndex(
+        (item, index) =>
+          index > currentIndex &&
+          Number(
+            item?.surahNumber ??
+              (item as any)?.surah?.number ??
+              0,
+          ) === current.surahNumber,
+      );
+
+      if (nextSameSurah >= 0) {
+        const nextAyah = ayahs[nextSameSurah];
+        const nextAyahNumber = Number(
+          nextAyah?.ayah ??
+            nextAyah?.numberInSurah ??
+            nextSameSurah + 1,
+        );
+        const nextTiming = findTimingRow(
+          timingRows,
+          current.surahNumber,
+          nextAyahNumber,
+        );
+
+        if (nextTiming) {
+          activeTimingRef.current = nextTiming;
           setPlayingAyah({
             page: currentPage,
-            surahNumber:
-              currentSurahNumber,
-            ayahNumber:
-              currentAyahNumber,
+            surahNumber: current.surahNumber,
+            ayahNumber: nextAyahNumber,
           });
+
+          try {
+            audio.currentTime = Math.max(0, nextTiming.start);
+          } catch {
+            // Ignore transient seek errors.
+          }
+
+          announceAudioPlaying(audio);
+          void audio.play()
+            .then(() => setIsPlaying(true))
+            .catch(() =>
+              setError('دەنگەکە نەکرا بەردەوام بکرێت.'),
+            );
+          return;
         }
       }
+
+      // Only Rizgar gets automatic cross-surah continuation here.
+      if (selectedReciter?.id === RIZGAR_RECITER_ID) {
+        const nextSurahNumber = current.surahNumber + 1;
+
+        if (nextSurahNumber <= 114) {
+          const nextSurahIndex = ayahs.findIndex(
+            (item) =>
+              Number(
+                item?.surahNumber ??
+                  (item as any)?.surah?.number ??
+                  0,
+              ) === nextSurahNumber &&
+              Number(
+                item?.ayah ??
+                  item?.numberInSurah ??
+                  0,
+              ) === 1,
+          );
+
+          if (nextSurahIndex >= 0) {
+            const nextTiming = findTimingRow(
+              timingRows,
+              nextSurahNumber,
+              1,
+            );
+
+            if (nextTiming) {
+              activeTimingRef.current = nextTiming;
+              setPlayingAyah({
+                page: currentPage,
+                surahNumber: nextSurahNumber,
+                ayahNumber: 1,
+              });
+
+              try {
+                audio.currentTime = Math.max(0, nextTiming.start);
+              } catch {
+                // Ignore transient seek errors.
+              }
+
+              announceAudioPlaying(audio);
+              void audio.play()
+                .then(() => setIsPlaying(true))
+                .catch(() =>
+                  setError('دەنگەکە نەکرا بەردەوام بکرێت.'),
+                );
+              return;
+            }
+          }
+
+          rizgarContinuationRef.current = {
+            surahNumber: nextSurahNumber,
+            ayahNumber: 1,
+          };
+
+          const nextSurah = surahsList?.find(
+            (surah) =>
+              Number(surah.number ?? surah.id ?? 0) ===
+              nextSurahNumber,
+          );
+
+          const nextPage = Number(
+            nextSurah?.startPage ??
+              nextSurah?.page ??
+              0,
+          );
+
+          if (nextPage > 0 && onJumpToPage) {
+            onJumpToPage(nextPage);
+          } else {
+            onNextPage();
+          }
+
+          activeTimingRef.current = null;
+          setPlayingAyah(null);
+          return;
+        }
+      }
+
+      activeTimingRef.current = null;
+      setPlayingAyah(null);
     }, [
       announceAudioPlaying,
       ayahs,
       currentPage,
       getCurrentPageAyahIndex,
+      onJumpToPage,
+      onNextPage,
       playingAyah,
-      selectedSurahNumber,
+      selectedReciter,
+      surahsList,
       timingRows,
     ]);
-
   const handleEnded =
     useCallback(() => {
       activeTimingRef.current = null;
@@ -2737,7 +2832,13 @@ export function QuranReader({
                   position: 'relative',
                   flex:
                     '0 0 min(92vw, 520px)',
+                  width:
+                    'min(92vw, 520px)',
                   height:
+                    'auto',
+                  aspectRatio:
+                    '1260 / 2020',
+                  maxHeight:
                     'calc(100vh - 200px)',
                   scrollSnapAlign:
                     'center',
@@ -2769,6 +2870,11 @@ export function QuranReader({
                   )}
                   alt={`Quran page ${page}`}
                   draggable={false}
+                  loading={
+                    Math.abs(page - currentPage) <= 2
+                      ? 'eager'
+                      : 'lazy'
+                  }
                   style={{
                     position:
                       'absolute',
@@ -2776,7 +2882,7 @@ export function QuranReader({
                     width: '100%',
                     height: '100%',
                     objectFit:
-                      'contain',
+                      'fill',
                     userSelect:
                       'none',
                     WebkitUserDrag:
