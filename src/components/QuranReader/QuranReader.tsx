@@ -1684,7 +1684,7 @@ export function QuranReader({
 
 
     };
-  }, [stopRizgarWebAudio]);
+  }, []);
 
   const availableForCurrentSurah =
     useMemo(() => {
