@@ -8,6 +8,10 @@ import React, {
 import initSqlJs from 'sql.js';
 import { ALL_RECITERS_DIRECTORY } from '../../data/recitersList';
 import {
+  getSurahAudio,
+  saveSurahAudio,
+} from '../../utils/quranAudioDb';
+import {
   getAyahBoxesForPage,
   type AyahCoordinate,
 } from '../../data/ayahCoordinates';
@@ -1980,19 +1984,52 @@ export function QuranReader({
               rizgarObjectUrlRef.current = null;
             }
 
-            const response = await fetch(src, {
-              cache: 'force-cache',
-            });
+            // Use IndexedDB for Rizgar's full-surah audio so repeated
+            // ayah selections use the same local Blob instead of
+            // depending on GitHub's remote MP3 range seeking.
+            let blob = await getSurahAudio(
+              RIZGAR_RECITER_ID,
+              surahNumber,
+            );
 
-            if (!response.ok) {
-              throw new Error(
-                `فایلی دەنگییەکەی ڕزگار نەکرا بار بکرێت: ${response.status}`,
+            if (!blob || blob.size === 0) {
+              const response = await fetch(src, {
+                cache: 'force-cache',
+              });
+
+              if (!response.ok) {
+                throw new Error(
+                  `فایلی دەنگییەکەی ڕزگار نەکرا بار بکرێت: ${response.status}`,
+                );
+              }
+
+              blob = await response.blob();
+
+              if (!blob.size) {
+                throw new Error(
+                  'فایلی دەنگییەکەی ڕزگار بەتاڵە.',
+                );
+              }
+
+              void saveSurahAudio(
+                RIZGAR_RECITER_ID,
+                surahNumber,
+                blob,
               );
             }
 
-            const blob = await response.blob();
-            const objectUrl = URL.createObjectURL(blob);
-            rizgarObjectUrlRef.current = objectUrl;
+            const typedBlob =
+              blob.type &&
+              blob.type.startsWith('audio/')
+                ? blob
+                : new Blob([blob], {
+                    type: 'audio/mpeg',
+                  });
+
+            const objectUrl =
+              URL.createObjectURL(typedBlob);
+            rizgarObjectUrlRef.current =
+              objectUrl;
             audio.src = objectUrl;
           } else {
             audio.src = src;
