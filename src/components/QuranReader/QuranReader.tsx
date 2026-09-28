@@ -1941,16 +1941,14 @@ export function QuranReader({
               surahNumber,
             );
           } catch (timingError) {
-            // ڕزگار gapless ـە؛ ئەگەر timing نەدۆزرایەوە نابێت
-            // بە 0 ـەوە دەست پێ بکات، چونکە ئەوە وا دەکات هەر
-            // ئایەتێک لە سەرەتای سۆرەت بخوێندرێت.
-            if (selectedReciter.id === RIZGAR_RECITER_ID) {
-              throw timingError;
-            }
-
-            // Timing must not block the other reciters.
+            // ڕزگار: timing failure نابێت audio playback ڕابگرێت.
+            // ئەگەر DB بە کاتی play ـدا بەردەست نەبوو، دەنگەکە هەر
+            // دەست پێ دەکات؛ highlight تەنها کاتێک دەگەڕێتەوە کە timing
+            // بەردەست بێت.
             console.warn(
-              'Gapless timing unavailable:',
+              selectedReciter.id === RIZGAR_RECITER_ID
+                ? 'Rizgar timing unavailable; playing audio without timing:'
+                : 'Gapless timing unavailable:',
               timingError,
             );
           }
