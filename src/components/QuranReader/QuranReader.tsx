@@ -1389,6 +1389,15 @@ export function QuranReader({
   const rizgarHighlightRafRef =
     useRef<number | null>(null);
 
+  // Rizgar-only: keep a local Blob URL for the active surah. Some mobile
+  // browsers do not reliably seek GitHub-hosted MP3s, even when currentTime
+  // and media fragments are set correctly. A local Blob makes the MP3 fully
+  // seekable before we start it.
+  const rizgarAudioUrlCacheRef =
+    useRef(new Map<number, string>());
+  const rizgarAudioPromiseRef =
+    useRef(new Map<number, Promise<string>>());
+
   const playRequestRef =
     useRef(0);
 
@@ -1683,6 +1692,86 @@ export function QuranReader({
         audio.removeAttribute('src');
         audio.load();
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedReciter?.id !== RIZGAR_RECITER_ID || !ayahs.length) {
+      return;
+    }
+
+    const surahs = Array.from(
+      new Set(
+        ayahs
+          .map((ayah: any) =>
+            Number(
+              ayah?.surahNumber ??
+                ayah?.surah?.number ??
+                0,
+            ),
+          )
+          .filter(
+            (number: number) =>
+              Number.isInteger(number) &&
+              number >= 1 &&
+              number <= 114,
+          ),
+      ),
+    );
+
+    for (const surahNumber of surahs) {
+      if (rizgarAudioUrlCacheRef.current.has(surahNumber)) {
+        continue;
+      }
+
+      if (!rizgarAudioPromiseRef.current.has(surahNumber)) {
+        const promise = fetch(
+          makeSurahAudioUrl(
+            makeRizgarReciter(),
+            surahNumber,
+          ),
+          { cache: 'force-cache' },
+        )
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(
+                `Rizgar audio HTTP ${response.status}`,
+              );
+            }
+            return response.blob();
+          })
+          .then((blob) => {
+            const url = URL.createObjectURL(blob);
+            rizgarAudioUrlCacheRef.current.set(
+              surahNumber,
+              url,
+            );
+            return url;
+          })
+          .catch((error) => {
+            rizgarAudioPromiseRef.current.delete(
+              surahNumber,
+            );
+            throw error;
+          });
+
+        rizgarAudioPromiseRef.current.set(
+          surahNumber,
+          promise,
+        );
+
+        void promise.catch(() => {});
+      }
+    }
+  }, [ayahs, selectedReciter?.id]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of rizgarAudioUrlCacheRef.current.values()) {
+        URL.revokeObjectURL(url);
+      }
+      rizgarAudioUrlCacheRef.current.clear();
+      rizgarAudioPromiseRef.current.clear();
     };
   }, []);
 
@@ -2037,10 +2126,41 @@ export function QuranReader({
             setError(null);
           }
 
-          const src = makeSurahAudioUrl(
+          const remoteSrc = makeSurahAudioUrl(
             selectedReciter,
             surahNumber,
           );
+
+          const src =
+            selectedReciter.id === RIZGAR_RECITER_ID
+              ? (
+                  rizgarAudioUrlCacheRef.current.get(
+                    surahNumber,
+                  ) ??
+                  (await (
+                    rizgarAudioPromiseRef.current.get(
+                      surahNumber,
+                    ) ??
+                    fetch(remoteSrc, { cache: 'force-cache' })
+                      .then((response) => {
+                        if (!response.ok) {
+                          throw new Error(
+                            `Rizgar audio HTTP ${response.status}`,
+                          );
+                        }
+                        return response.blob();
+                      })
+                      .then((blob) => {
+                        const url = URL.createObjectURL(blob);
+                        rizgarAudioUrlCacheRef.current.set(
+                          surahNumber,
+                          url,
+                        );
+                        return url;
+                      })
+                  ))
+                )
+              : remoteSrc;
 
           // هەر tap ـێک دەبێت audio source ـی سورەتی خۆی بە ڕوونی دابنێت.
           if (selectedReciter.id !== RIZGAR_RECITER_ID) {
@@ -2060,31 +2180,21 @@ export function QuranReader({
             return;
           }
 
-          // Rizgar uses the timing value in the media URL itself. This is
-          // intentionally different from the old "play at 0:00 -> seek"
-          // approach, which was restarting at 0:00 on the user's phone.
-          if (
-            selectedReciter.id === RIZGAR_RECITER_ID &&
-            timing
-          ) {
-            const rizgarStart = Math.max(0, timing.start);
-            const fragmentSrc =
-              rizgarStart > 0
-                ? `${src}#t=${rizgarStart.toFixed(3)}`
-                : src;
-
+          // Rizgar now uses a local Blob URL. This is the key change:
+          // the browser has the complete MP3 locally, so seeking to the DB
+          // timestamp does not depend on GitHub HTTP range/seek behavior.
+          if (selectedReciter.id === RIZGAR_RECITER_ID) {
             audio.muted = true;
             audio.pause();
             audio.removeAttribute('src');
             audio.load();
-            audio.src = fragmentSrc;
+            audio.src = src;
             audio.load();
 
             try {
               await audio.play();
             } catch {
-              // A muted media element can normally be started after the
-              // source is ready; the final play() below is the fallback.
+              // Final play() below is the fallback.
             }
           }
 
@@ -2154,9 +2264,8 @@ export function QuranReader({
             };
 
             if (selectedReciter.id === RIZGAR_RECITER_ID) {
-              // The #t= fragment is the primary seek mechanism. Keep the
-              // currentTime assignment as a compatibility fallback for
-              // browsers that ignore media fragments on audio.
+              // The local Blob is the primary reliability fix. currentTime
+              // now seeks inside a local, fully buffered MP3.
               rizgarPendingSeekRef.current = seekTo;
               await seekAudioTo(seekTo, true);
             } else {
