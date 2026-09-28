@@ -1157,335 +1157,126 @@ async function fetchRizgarTimingFromDb(
   }
 
   const localUrl =
-    \`${import.meta.env.BASE_URL}gapless-timing/${RIZGAR_RECITER_ID}.db\`;
-
-  const candidates = [
-    localUrl,
-    config.timingDbUrl,
-  ];
+    `${import.meta.env.BASE_URL}gapless-timing/${RIZGAR_RECITER_ID}.db`;
 
   let buffer: ArrayBuffer | null = null;
 
-  for (const url of candidates) {
+  for (const url of [localUrl, config.timingDbUrl]) {
     try {
-      const response = await fetch(url, {
-        cache: 'force-cache',
-      });
+      const response = await fetch(url, { cache: 'force-cache' });
 
       if (response.ok) {
         buffer = await response.arrayBuffer();
         break;
       }
     } catch {
-      // Try the next Rizgar timing DB source.
+      // Try the next source.
     }
   }
 
   if (!buffer) {
-    throw new Error(
-      'DB ـی timing ـی ڕزگار نەکرا بار بکرێت.',
-    );
+    throw new Error('DB ـی timing ـی ڕزگار نەکرا بار بکرێت.');
   }
 
   const SQL = await initSqlJs({
     locateFile: () => SQL_WASM_URL,
   });
 
-  const db = new SQL.Database(
-    new Uint8Array(buffer),
-  );
+  const db = new SQL.Database(new Uint8Array(buffer));
 
   try {
-    const quote = (value: string) =>
-      \`"${value.replace(/"/g, '""')}"\`;
-
-    const normalize = (value: string) =>
-      value.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-    const findColumn = (
-      columns: string[],
-      candidates: string[],
-    ) => {
-      const wanted = new Set(
-        candidates.map(normalize),
-      );
-
-      return (
-        columns.find((column) =>
-          wanted.has(normalize(column)),
-        ) ?? null
-      );
-    };
-
-    const inferSurahFromTable = (
-      tableName: string,
-    ): number | null => {
-      const match = tableName.match(
-        /(?:^|[^0-9])(\d{1,3})(?:[^0-9]|$)/,
-      );
-
-      if (!match) return null;
-
-      const value = Number(match[1]);
-      return value >= 1 && value <= 114
-        ? value
-        : null;
-    };
-
-    const tablesResult = db.exec(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    // The real Rizgar DB schema is:
+    // timings(sura INTEGER, ayah INTEGER, time INTEGER)
+    // and ayah=999 is the end-of-surah marker.
+    const tableInfo = db.exec(
+      'PRAGMA table_info("timings")',
     );
 
-    const tableNames =
-      tablesResult[0]?.values
-        .map((row) => String(row[0] ?? ''))
+    const columns =
+      tableInfo[0]?.values
+        .map((row) => String(row[1] ?? '').toLowerCase())
         .filter(Boolean) ?? [];
 
-    type TableInfo = {
-      name: string;
-      surahColumn: string | null;
-      ayahColumn: string;
-      startColumn: string;
-      endColumn: string | null;
-      tableSurah: number | null;
+    if (
+      !columns.includes('sura') ||
+      !columns.includes('ayah') ||
+      !columns.includes('time')
+    ) {
+      throw new Error(
+        'Schema ـی DB ـی ڕزگار چاوەڕوانکراو نییە.',
+      );
+    }
+
+    const result = db.exec(
+      `SELECT "sura", "ayah", "time"
+       FROM "timings"
+       WHERE "sura" = ${Number(surahNumber)}
+       ORDER BY "ayah" ASC`,
+    );
+
+    const rawRows = result[0]?.values ?? [];
+
+    const toSeconds = (value: number) => {
+      if (!Number.isFinite(value) || value < 0) return 0;
+      return value > 1000 ? value / 1000 : value;
     };
 
-    const compatibleTables: TableInfo[] = [];
+    const points = rawRows
+      .map((row) => ({
+        surah: Number(row[0]),
+        ayah: Number(row[1]),
+        time: Number(row[2]),
+      }))
+      .filter(
+        (row) =>
+          row.surah === surahNumber &&
+          Number.isInteger(row.ayah) &&
+          row.ayah >= 1 &&
+          Number.isFinite(row.time) &&
+          row.time >= 0,
+      );
 
-    for (const tableName of tableNames) {
-      let infoResult: any[];
+    if (!points.length) {
+      throw new Error(
+        `هیچ timing ـێکی ڕزگار بۆ سورەتی ${surahNumber} نەدۆزرایەوە.`,
+      );
+    }
 
-      try {
-        infoResult = db.exec(
-          \`PRAGMA table_info(${quote(tableName)})\`,
-        );
-      } catch {
-        continue;
-      }
+    const endMarker =
+      points.find((point) => point.ayah === 999) ?? null;
 
-      const columns =
-        infoResult[0]?.values
-          .map((row) => String(row[1] ?? ''))
-          .filter(Boolean) ?? [];
+    const ayahPoints = points
+      .filter((point) => point.ayah >= 1 && point.ayah < 999)
+      .sort((a, b) => a.ayah - b.ayah);
 
-      const surahColumn = findColumn(columns, [
-        'surah',
-        'sura',
-        'surah_number',
-        'sura_number',
-        'surahnumber',
-        'chapter',
-        'chapter_number',
-        'chapternumber',
-        'surah_id',
-        'sura_id',
-      ]);
+    if (!ayahPoints.length) {
+      throw new Error(
+        `هیچ ئایەتێکی timing ـی ڕزگار بۆ سورەتی ${surahNumber} نەدۆزرایەوە.`,
+      );
+    }
 
-      const ayahColumn = findColumn(columns, [
-        'ayah',
-        'aya',
-        'ayah_number',
-        'aya_number',
-        'ayahnumber',
-        'verse',
-        'verse_number',
-        'versenumber',
-        'verse_number_in_surah',
-      ]);
+    const rows: TimingRow[] = [];
 
-      const startColumn = findColumn(columns, [
-        'start',
-        'start_time',
-        'start_ms',
-        'starttime',
-        'starttimems',
-        'time',
-        'time_ms',
-        'timestamp',
-        'timestamp_start',
-        'from',
-        'begin',
-        'begin_time',
-      ]);
+    for (let i = 0; i < ayahPoints.length; i += 1) {
+      const current = ayahPoints[i];
+      const next = ayahPoints[i + 1];
 
-      const endColumn = findColumn(columns, [
-        'end',
-        'end_time',
-        'end_ms',
-        'endtime',
-        'endtimems',
-        'timestamp_end',
-        'to',
-        'finish',
-        'finish_time',
-      ]);
+      const start = toSeconds(current.time);
+      const nextStart = next
+        ? toSeconds(next.time)
+        : endMarker
+          ? toSeconds(endMarker.time)
+          : start + 0.5;
 
-      if (!ayahColumn || !startColumn) {
-        continue;
-      }
-
-      compatibleTables.push({
-        name: tableName,
-        surahColumn,
-        ayahColumn,
-        startColumn,
-        endColumn,
-        tableSurah: inferSurahFromTable(tableName),
+      rows.push({
+        surah: surahNumber,
+        ayah: current.ayah,
+        start,
+        end:
+          nextStart > start
+            ? nextStart
+            : start + 0.5,
       });
-    }
-
-    if (!compatibleTables.length) {
-      throw new Error(
-        'هیچ خشتەی timing ـی گونجاو بۆ ڕزگار نەدۆزرایەوە.',
-      );
-    }
-
-    // ڕزگار لە DB ـەکەی خۆیدا دەتوانێت timing ـەکان بە
-    // خشتەی جیاواز بۆ هەر سۆرەت هەڵبگرێت. لەو حاڵەتەدا
-    // ناوی خشتەکە ناسنامەی سۆرەتەکەیە، نەک column ـێکی surah.
-    // هەروەها هەندێک وەشانی DB هەموو ١١٤ سۆرەت بە خشتەی
-    // جیاواز هەڵدەگرن بەبێ ژمارەی سۆرەت لە ناو row ـەکان.
-    const exactTables = compatibleTables.filter(
-      (table) =>
-        table.surahColumn !== null
-          ? true
-          : table.tableSurah === surahNumber,
-    );
-
-    let selectedTables = exactTables;
-
-    // ئەگەر DB ـەکە ١١٤ خشتەی timing ـی یەکسانی هەبێت و
-    // هیچ surah column ـێکی تێدا نەبێت، index ـی خشتەکان
-    // بە ژمارەی سۆرەت وەردەگیرێت.
-    if (
-      selectedTables.length === 0 &&
-      compatibleTables.length === 114 &&
-      compatibleTables.every(
-        (table) => table.surahColumn === null,
-      )
-    ) {
-      selectedTables = [
-        compatibleTables[surahNumber - 1],
-      ].filter(Boolean);
-    }
-
-    if (selectedTables.length === 0) {
-      throw new Error(
-        \`ناسنامەی سۆرەتی ${surahNumber} لە DB ـی ڕزگار بە دڵنیایی نەدۆزرایەوە.\`,
-      );
-    }
-
-    const collected: TimingRow[] = [];
-
-    for (const table of selectedTables) {
-      const selected = [
-        table.surahColumn
-          ? quote(table.surahColumn)
-          : null,
-        quote(table.ayahColumn),
-        quote(table.startColumn),
-        table.endColumn
-          ? quote(table.endColumn)
-          : null,
-      ]
-        .filter(Boolean)
-        .join(', ');
-
-      let result: any[];
-
-      try {
-        result = db.exec(
-          \`SELECT ${selected} FROM ${quote(table.name)}\`,
-        );
-      } catch {
-        continue;
-      }
-
-      const values = result[0]?.values ?? [];
-
-      for (const row of values) {
-        let offset = 0;
-
-        const rowSurah = table.surahColumn
-          ? Number(row[offset++])
-          : surahNumber;
-
-        const ayah = Number(row[offset++]);
-        const startRaw = Number(row[offset++]);
-        const endRaw = table.endColumn
-          ? Number(row[offset])
-          : NaN;
-
-        if (
-          rowSurah !== surahNumber ||
-          !Number.isInteger(ayah) ||
-          ayah < 1 ||
-          !Number.isFinite(startRaw)
-        ) {
-          continue;
-        }
-
-        const toSeconds = (value: number) => {
-          if (!Number.isFinite(value) || value < 0) {
-            return 0;
-          }
-
-          return value > 1000
-            ? value / 1000
-            : value;
-        };
-
-        const start = toSeconds(startRaw);
-        const explicitEnd = Number.isFinite(endRaw)
-          ? toSeconds(endRaw)
-          : null;
-
-        collected.push({
-          surah: surahNumber,
-          ayah,
-          start,
-          end:
-            explicitEnd !== null &&
-            explicitEnd >= start
-              ? explicitEnd
-              : start,
-        });
-      }
-    }
-
-    const unique = new Map<number, TimingRow>();
-
-    for (const row of collected) {
-      const old = unique.get(row.ayah);
-
-      if (!old || row.start < old.start) {
-        unique.set(row.ayah, row);
-      }
-    }
-
-    const rows = [...unique.values()].sort(
-      (a, b) => a.ayah - b.ayah,
-    );
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const current = rows[i];
-      const next = rows[i + 1];
-
-      if (
-        current.end <= current.start &&
-        next &&
-        next.start > current.start
-      ) {
-        current.end = next.start;
-      } else if (current.end <= current.start) {
-        current.end = current.start + 0.5;
-      }
-    }
-
-    if (!rows.length) {
-      throw new Error(
-        \`هیچ timing ـێکی ڕزگار بۆ سورەتی ${surahNumber} نەدۆزرایەوە.\`,
-      );
     }
 
     return rows;
@@ -2195,10 +1986,73 @@ export function QuranReader({
               ),
             );
 
-            try {
-              audio.currentTime = seekTo;
-            } catch {
-              // Ignore.
+            const seekAudioTo = async (target: number) => {
+              const clamped = Math.max(
+                0,
+                Math.min(
+                  target,
+                  Number.isFinite(audio.duration)
+                    ? Math.max(0, audio.duration - 0.05)
+                    : target,
+                ),
+              );
+
+              const applySeek = () => {
+                try {
+                  audio.currentTime = clamped;
+                } catch {
+                  // Ignore transient seek errors.
+                }
+              };
+
+              applySeek();
+
+              if (
+                Math.abs(audio.currentTime - clamped) <= 0.15
+              ) {
+                return;
+              }
+
+              await new Promise<void>((resolve) => {
+                let settled = false;
+
+                const finish = () => {
+                  if (settled) return;
+                  settled = true;
+                  audio.removeEventListener('seeked', finish);
+                  window.clearTimeout(timer);
+                  resolve();
+                };
+
+                const timer = window.setTimeout(
+                  finish,
+                  1500,
+                );
+
+                audio.addEventListener(
+                  'seeked',
+                  finish,
+                  { once: true },
+                );
+
+                // Some mobile browsers need the seek command again
+                // after the media element has entered its seeking state.
+                applySeek();
+              });
+
+              if (
+                Math.abs(audio.currentTime - clamped) > 0.15
+              ) {
+                applySeek();
+              }
+            };
+
+            await seekAudioTo(timing.start);
+
+            if (
+              requestId !== playRequestRef.current
+            ) {
+              return;
             }
 
             activeTimingRef.current = timing;
