@@ -1,23 +1,11 @@
-name: Inspect Rizgar DB
+name: Rizgar DB inspection (disabled)
 
 on:
-  push:
-    paths:
-      - "rzgar_kurdi_mutasil.db"
-      - ".github/workflows/inspect-rizgar-db.yml"
+  workflow_dispatch:
 
 jobs:
-  inspect:
+  disabled:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Inspect SQLite timing
-        run: |
-          sqlite3 rzgar_kurdi_mutasil.db <<'SQL'
-          .mode tabs
-          SELECT 'schema', sql FROM sqlite_master WHERE type='table' AND name='timings';
-          SELECT '113:1', sura, ayah, time FROM timings WHERE sura=113 AND ayah=1;
-          SELECT '113:2', sura, ayah, time FROM timings WHERE sura=113 AND ayah=2;
-          SELECT '113:3', sura, ayah, time FROM timings WHERE sura=113 AND ayah=3;
-          SELECT '113:all', sura, ayah, time FROM timings WHERE sura=113 ORDER BY ayah;
-          SQL
+      - run: echo "Disabled temporary diagnostic workflow"
