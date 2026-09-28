@@ -527,6 +527,82 @@ const resolveGaplessTimingAtTime = (
   return latest;
 };
 
+const ramadanShakoorTimingCache: Record<string, Mp3QuranTiming[]> = {};
+
+const getRamadanShakoorTiming = async (
+  surahNumber: number
+): Promise<Mp3QuranTiming[]> => {
+  const cacheKey = String(surahNumber);
+
+  if (ramadanShakoorTimingCache[cacheKey]) {
+    return ramadanShakoorTimingCache[cacheKey];
+  }
+
+  const response = await fetch(
+    `https://mp3quran.net/api/v3/ayat_timing?surah=${surahNumber}&read=227`
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Ramadan Shakoor timing HTTP ${response.status}`
+    );
+  }
+
+  const data = await response.json();
+  const raw = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.ayat)
+    ? data.ayat
+    : Array.isArray(data?.timing)
+    ? data.timing
+    : Array.isArray(data?.ayahs)
+    ? data.ayahs
+    : [];
+
+  const timings = raw
+    .map((item: any) => ({
+      ayah: Number(
+        item?.ayah ??
+          item?.ayah_number ??
+          item?.number
+      ),
+      start_time: normalizeTimingValue(
+        Number(
+          item?.start_time ??
+            item?.start ??
+            item?.startTime
+        )
+      ),
+      end_time: normalizeTimingValue(
+        Number(
+          item?.end_time ??
+            item?.end ??
+            item?.endTime
+        )
+      )
+    }))
+    .filter(
+      (item: Mp3QuranTiming) =>
+        Number.isFinite(item.ayah) &&
+        item.ayah > 0 &&
+        Number.isFinite(item.start_time) &&
+        Number.isFinite(item.end_time) &&
+        item.end_time > item.start_time
+    )
+    .sort((a, b) => a.ayah - b.ayah);
+
+  if (!timings.length) {
+    throw new Error(
+      `Ramadan Shakoor timing is empty for surah ${surahNumber}`
+    );
+  }
+
+  ramadanShakoorTimingCache[cacheKey] = timings;
+  return timings;
+};
+
 const manualTimingCache: Record<
   string,
   Mp3QuranTiming[] | null
@@ -1715,35 +1791,6 @@ export const MushafPageView: React.FC<
         return exactPeshawaRead;
       }
 
-      /*
-       * Ramadan Shakoor's MP3Quran source is explicitly read 227.
-       * Lock the read ID so its ayah timing always belongs to the
-       * exact same audio source.
-       */
-      if (
-        reciter.id ===
-        'ramazan_shukur'
-      ) {
-        const exactRamadanRead: Mp3QuranRead = {
-          id: 227,
-          server:
-            reciter.audioBaseUrl,
-          surah_total: 114,
-          surah_list:
-            Array.from(
-              { length: 114 },
-              (_, index) =>
-                index + 1
-            ).join(',')
-        };
-
-        mp3ReadCacheRef.current[
-          cacheKey
-        ] = exactRamadanRead;
-
-        return exactRamadanRead;
-      }
-
       try {
         const response =
           await fetch(
@@ -2106,6 +2153,67 @@ export const MushafPageView: React.FC<
           endTime: timing?.end_time
         };
       }
+      /*
+       * ===============================================
+       * RAMADAN SHAKOOR — DEDICATED SOURCE
+       * ===============================================
+       *
+       * Ramadan has its own fixed MP3Quran read (227),
+       * its own available-surah list, its own timing loader,
+       * and its own exact audio URL contract.
+       */
+      if (
+        reciter.audioSource ===
+        'ramadan_shakoor'
+      ) {
+        const available =
+          reciter.availableSurahs ?? [];
+
+        if (!available.includes(surahNumber)) {
+          throw new Error(
+            `سورەتی ${surahNumber} بۆ ڕەمەزان شکور بەردەست نییە`
+          );
+        }
+
+        const base =
+          reciter.audioBaseUrl?.endsWith('/')
+            ? reciter.audioBaseUrl
+            : reciter.audioBaseUrl
+            ? `${reciter.audioBaseUrl}/`
+            : '';
+
+        if (!base) {
+          throw new Error(
+            'URL ـی دەنگی ڕەمەزان شکور نەدۆزرایەوە'
+          );
+        }
+
+        const url =
+          `${base}${String(surahNumber).padStart(3, '0')}.mp3`;
+
+        const timings =
+          await getRamadanShakoorTiming(
+            surahNumber
+          );
+
+        const timing =
+          timings.find(
+            item => item.ayah === ayahNumber
+          );
+
+        if (!timing) {
+          throw new Error(
+            `کاتی ئایەتی ${surahNumber}:${ayahNumber} بۆ ڕەمەزان شکور نەدۆزرایەوە`
+          );
+        }
+
+        return {
+          url,
+          startTime: timing.start_time,
+          endTime: timing.end_time
+        };
+      }
+
       /*
        * ===============================================
        * MP3QURAN
