@@ -2115,6 +2115,20 @@ export function QuranReader({
         const requestId =
           ++playRequestRef.current;
 
+        // Create/resume Web Audio immediately inside the user's pointer
+        // gesture. This avoids mobile autoplay policies suspending the source
+        // after the later network/decode awaits.
+        if (selectedReciter.id === RIZGAR_RECITER_ID) {
+          let context = rizgarAudioContextRef.current;
+          if (!context) {
+            context = new AudioContext();
+            rizgarAudioContextRef.current = context;
+          }
+          if (context.state === 'suspended') {
+            await context.resume();
+          }
+        }
+
         loadingPlayRef.current = true;
         setIsLoading(true);
         setError(null);
@@ -2195,36 +2209,7 @@ export function QuranReader({
             surahNumber,
           );
 
-          const src =
-            selectedReciter.id === RIZGAR_RECITER_ID
-              ? (
-                  rizgarAudioUrlCacheRef.current.get(
-                    surahNumber,
-                  ) ??
-                  (await (
-                    rizgarAudioPromiseRef.current.get(
-                      surahNumber,
-                    ) ??
-                    fetch(remoteSrc, { cache: 'force-cache' })
-                      .then((response) => {
-                        if (!response.ok) {
-                          throw new Error(
-                            `Rizgar audio HTTP ${response.status}`,
-                          );
-                        }
-                        return response.blob();
-                      })
-                      .then((blob) => {
-                        const url = URL.createObjectURL(blob);
-                        rizgarAudioUrlCacheRef.current.set(
-                          surahNumber,
-                          url,
-                        );
-                        return url;
-                      })
-                  ))
-                )
-              : remoteSrc;
+          const src = remoteSrc;
 
           // هەر tap ـێک دەبێت audio source ـی سورەتی خۆی بە ڕوونی دابنێت.
           if (selectedReciter.id !== RIZGAR_RECITER_ID) {
