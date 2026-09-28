@@ -1381,6 +1381,26 @@ export function QuranReader({
   const activeTimingRef =
     useRef<TimingRow | null>(null);
 
+  // Rizgar uses Web Audio for exact ayah offsets because the mobile
+  // HTMLAudio transport for the GitHub release MP3 can snap currentTime back
+  // to 0:00. The decoded buffer starts directly at the timing offset.
+  const rizgarAudioContextRef =
+    useRef<AudioContext | null>(null);
+  const rizgarAudioBufferCacheRef =
+    useRef(new Map<number, AudioBuffer>());
+  const rizgarAudioSourceRef =
+    useRef<AudioBufferSourceNode | null>(null);
+  const rizgarWebAudioStartedAtRef =
+    useRef(0);
+  const rizgarWebAudioOffsetRef =
+    useRef(0);
+  const rizgarWebAudioPlayingRef =
+    useRef(false);
+  const rizgarWebAudioRafRef =
+    useRef<number | null>(null);
+  const rizgarWebAudioTimingRowsRef =
+    useRef<TimingRow[]>([]);
+
   const playRequestRef =
     useRef(0);
 
@@ -1625,6 +1645,8 @@ export function QuranReader({
     activeTimingRef.current = null;
     loadingPlayRef.current = false;
 
+    stopRizgarWebAudio();
+
     if (audio) {
       audio.pause();
       audio.removeAttribute('src');
@@ -1670,14 +1692,20 @@ export function QuranReader({
       ++playRequestRef.current;
       activeTimingRef.current = null;
       const audio = audioRef.current;
+      stopRizgarWebAudio();
+
       if (audio) {
         audio.pause();
         audio.removeAttribute('src');
         audio.load();
       }
 
+      rizgarAudioContextRef.current?.close().catch(() => {});
+      rizgarAudioContextRef.current = null;
+      rizgarAudioBufferCacheRef.current.clear();
+
     };
-  }, []);
+  }, [stopRizgarWebAudio]);
 
   const availableForCurrentSurah =
     useMemo(() => {
@@ -1856,6 +1884,200 @@ export function QuranReader({
       );
     }, []);
 
+  const getRizgarAudioContext = useCallback(() => {
+    if (rizgarAudioContextRef.current) {
+      return rizgarAudioContextRef.current;
+    }
+
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as any).webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      throw new Error('ئەم وێبگەڕە Web Audio پشتگیری ناکات.');
+    }
+
+    const context: AudioContext = new AudioContextCtor();
+    rizgarAudioContextRef.current = context;
+    return context;
+  }, []);
+
+  const stopRizgarWebAudio = useCallback(
+    (resetOffset = true) => {
+      if (rizgarWebAudioRafRef.current !== null) {
+        window.cancelAnimationFrame(
+          rizgarWebAudioRafRef.current,
+        );
+        rizgarWebAudioRafRef.current = null;
+      }
+
+      const source = rizgarAudioSourceRef.current;
+      if (source) {
+        try {
+          source.stop();
+        } catch {
+          // Already stopped.
+        }
+        try {
+          source.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+        rizgarAudioSourceRef.current = null;
+      }
+
+      rizgarWebAudioPlayingRef.current = false;
+      if (resetOffset) {
+        rizgarWebAudioOffsetRef.current = 0;
+      }
+    },
+    [],
+  );
+
+  const startRizgarWebAudio = useCallback(
+    async ({
+      buffer,
+      rows,
+      page,
+      surahNumber,
+      ayahNumber,
+      offset,
+    }: {
+      buffer: AudioBuffer;
+      rows: TimingRow[];
+      page: number;
+      surahNumber: number;
+      ayahNumber: number;
+      offset: number;
+    }) => {
+      const context = getRizgarAudioContext();
+      await context.resume();
+
+      stopRizgarWebAudio();
+
+      const safeOffset = Math.max(
+        0,
+        Math.min(
+          offset,
+          Math.max(0, buffer.duration - 0.01),
+        ),
+      );
+
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+
+      rizgarAudioSourceRef.current = source;
+      rizgarWebAudioStartedAtRef.current =
+        context.currentTime - safeOffset;
+      rizgarWebAudioOffsetRef.current = safeOffset;
+      rizgarWebAudioPlayingRef.current = true;
+      rizgarWebAudioTimingRowsRef.current = rows;
+
+      const setHighlightFromPosition = () => {
+        if (
+          rizgarAudioSourceRef.current !== source ||
+          !rizgarWebAudioPlayingRef.current
+        ) {
+          return false;
+        }
+
+        const position = Math.min(
+          buffer.duration,
+          Math.max(
+            0,
+            context.currentTime -
+              rizgarWebAudioStartedAtRef.current,
+          ),
+        );
+
+        let currentTiming: TimingRow | null = null;
+        for (const row of rows) {
+          if (row.start <= position) {
+            currentTiming = row;
+          } else {
+            break;
+          }
+        }
+
+        if (currentTiming) {
+          const previous = activeTimingRef.current;
+          activeTimingRef.current = currentTiming;
+
+          if (
+            !previous ||
+            previous.surah !== currentTiming.surah ||
+            previous.ayah !== currentTiming.ayah
+          ) {
+            const nextPlayingAyah = {
+              page,
+              surahNumber,
+              ayahNumber: currentTiming.ayah,
+            };
+            setRizgarAudioHighlightedAyah(
+              nextPlayingAyah,
+            );
+            setPlayingAyah(nextPlayingAyah);
+          }
+        }
+
+        rizgarWebAudioOffsetRef.current = position;
+        rizgarWebAudioRafRef.current =
+          window.requestAnimationFrame(
+            setHighlightFromPosition,
+          );
+        return true;
+      };
+
+      source.onended = () => {
+        if (rizgarAudioSourceRef.current !== source) {
+          return;
+        }
+
+        if (rizgarWebAudioRafRef.current !== null) {
+          window.cancelAnimationFrame(
+            rizgarWebAudioRafRef.current,
+          );
+          rizgarWebAudioRafRef.current = null;
+        }
+
+        rizgarAudioSourceRef.current = null;
+        rizgarWebAudioPlayingRef.current = false;
+        rizgarWebAudioOffsetRef.current = buffer.duration;
+        activeTimingRef.current = null;
+        setIsPlaying(false);
+        setPlayingAyah(null);
+        setRizgarAudioHighlightedAyah(null);
+      };
+
+      activeTimingRef.current =
+        rows.find((row) => row.ayah === ayahNumber) ?? null;
+      setPlayingAyah({
+        page,
+        surahNumber,
+        ayahNumber,
+      });
+      setRizgarAudioHighlightedAyah({
+        page,
+        surahNumber,
+        ayahNumber,
+      });
+
+      source.start(0, safeOffset);
+      announceAudioPlaying(
+        audioRef.current as HTMLAudioElement,
+      );
+      setIsPlaying(true);
+      setIsLoading(false);
+      setHighlightFromPosition();
+    },
+    [
+      announceAudioPlaying,
+      getRizgarAudioContext,
+      stopRizgarWebAudio,
+    ],
+  );
+
   useEffect(() => {
     const handleOtherAudio = (event: Event) => {
       const otherAudio =
@@ -1866,6 +2088,7 @@ export function QuranReader({
       if (!audio || otherAudio === audio) return;
 
       audio.pause();
+      stopRizgarWebAudio();
       setIsPlaying(false);
       setPlayingAyah(null);
       activeTimingRef.current = null;
@@ -1882,7 +2105,7 @@ export function QuranReader({
         handleOtherAudio,
       );
     };
-  }, []);
+  }, [stopRizgarWebAudio]);
 
   // Rizgar-only: preload timing before the user's touch so mobile playback
   // can start without waiting for the timing DB/network after the gesture.
@@ -1981,6 +2204,117 @@ export function QuranReader({
         setIsPlaying(false);
 
         audio.pause();
+
+        if (selectedReciter.id === RIZGAR_RECITER_ID) {
+          const context = getRizgarAudioContext();
+          const resumePromise = context.resume();
+
+          let rows: TimingRow[];
+          try {
+            rows = await timingForCurrentSurah(
+              selectedReciter,
+              surahNumber,
+            );
+          } catch (timingError) {
+            throw new Error(
+              timingError instanceof Error
+                ? timingError.message
+                : 'کاتی دەنگی ڕزگار نەکرا بار بکرێت.',
+            );
+          }
+
+          const timing = rows.find(
+            (row) =>
+              (row.surah === undefined ||
+                row.surah === surahNumber) &&
+              row.ayah === ayahNumber,
+          );
+
+          if (!timing) {
+            throw new Error(
+              'کاتی دەنگی ڕزگار بۆ ئەم ئایەتە نەدۆزرایەوە.',
+            );
+          }
+
+          setTimingRows(rows);
+          activeTimingRef.current = timing;
+          setPlayingAyah({
+            page: currentPage,
+            surahNumber,
+            ayahNumber,
+          });
+          setRizgarAudioHighlightedAyah({
+            page: currentPage,
+            surahNumber,
+            ayahNumber,
+          });
+
+          let buffer =
+            rizgarAudioBufferCacheRef.current.get(
+              surahNumber,
+            );
+
+          if (!buffer) {
+            const remoteSrc = makeSurahAudioUrl(
+              selectedReciter,
+              surahNumber,
+            );
+            const response = await fetch(
+              remoteSrc,
+              { cache: 'force-cache' },
+            );
+
+            if (!response.ok) {
+              throw new Error(
+                'فایلی دەنگی ڕزگار نەکرا بار بکرێت: ' +
+                  response.status,
+              );
+            }
+
+            const audioData =
+              await response.arrayBuffer();
+            await resumePromise;
+            buffer = await context.decodeAudioData(
+              audioData,
+            );
+
+            rizgarAudioBufferCacheRef.current.set(
+              surahNumber,
+              buffer,
+            );
+
+            while (
+              rizgarAudioBufferCacheRef.current.size > 2
+            ) {
+              const oldest =
+                rizgarAudioBufferCacheRef.current.keys().next().value;
+              if (oldest === undefined) break;
+              rizgarAudioBufferCacheRef.current.delete(
+                oldest,
+              );
+            }
+          } else {
+            await resumePromise;
+          }
+
+          if (requestId !== playRequestRef.current) {
+            return;
+          }
+
+          await startRizgarWebAudio({
+            buffer,
+            rows,
+            page: currentPage,
+            surahNumber,
+            ayahNumber,
+            offset: timing.start,
+          });
+          return;
+        }
+
+        // Non-Rizgar reciters continue using the existing HTMLAudio transport.
+        // Rizgar is handled above with decoded Web Audio so mobile seek never
+        // depends on HTMLAudioElement.currentTime.
 
         // Rizgar: do not start the audible MP3 at 0:00 and then try to
         // move it. The browser is instructed to start the media itself at the
@@ -2194,6 +2528,8 @@ export function QuranReader({
       loadingPlayRef.current = false;
       activeTimingRef.current = null;
 
+      stopRizgarWebAudio();
+
       const audio = audioRef.current;
       if (audio) {
         audio.pause();
@@ -2214,6 +2550,47 @@ export function QuranReader({
     useCallback(() => {
       if (playingAyah === null) return;
 
+      if (selectedReciter?.id === RIZGAR_RECITER_ID) {
+        const context = rizgarAudioContextRef.current;
+        const source = rizgarAudioSourceRef.current;
+
+        if (
+          context &&
+          source &&
+          rizgarWebAudioPlayingRef.current
+        ) {
+          rizgarWebAudioOffsetRef.current = Math.max(
+            0,
+            context.currentTime -
+              rizgarWebAudioStartedAtRef.current,
+          );
+          stopRizgarWebAudio(false);
+          setIsPlaying(false);
+          return;
+        }
+
+        const buffer =
+          rizgarAudioBufferCacheRef.current.get(
+            playingAyah.surahNumber,
+          );
+        const rows =
+          rizgarWebAudioTimingRowsRef.current;
+
+        if (!buffer || !rows.length) return;
+
+        void startRizgarWebAudio({
+          buffer,
+          rows,
+          page: currentPage,
+          surahNumber: playingAyah.surahNumber,
+          ayahNumber: playingAyah.ayahNumber,
+          offset: rizgarWebAudioOffsetRef.current,
+        }).catch(() =>
+          setError('دەنگەکە نەکرا پخش بکرێت.'),
+        );
+        return;
+      }
+
       const audio = audioRef.current;
       if (!audio) return;
 
@@ -2231,7 +2608,14 @@ export function QuranReader({
         audio.pause();
         setIsPlaying(false);
       }
-    }, [announceAudioPlaying, playingAyah]);
+    }, [
+      announceAudioPlaying,
+      currentPage,
+      playingAyah,
+      selectedReciter,
+      startRizgarWebAudio,
+      stopRizgarWebAudio,
+    ]);
 
   const handleTimeUpdate = useCallback(() => {
     const audio = audioRef.current;
