@@ -360,10 +360,7 @@ const makeRizgarReciter = (): DynamicReciter => ({
 async function fetchRizgarTiming(
   surahNumber: number,
 ): Promise<TimingRow[]> {
-  return fetchGaplessTimingFromDb(
-    RIZGAR_RECITER_ID,
-    surahNumber,
-  );
+  return fetchRizgarTimingFromDb(surahNumber);
 }
 
 async function fetchDynamicKurdishReciters(): Promise<
@@ -1143,6 +1140,293 @@ async function fetchGaplessTimingFromDb(
     }
 
     return timings;
+  } finally {
+    db.close();
+  }
+}
+
+async function fetchRizgarTimingFromDb(
+  surahNumber: number,
+): Promise<TimingRow[]> {
+  const config = ALL_RECITERS_DIRECTORY.find(
+    (item) => item.id === RIZGAR_RECITER_ID,
+  );
+
+  if (!config?.timingDbUrl) {
+    throw new Error('timingDbUrl ـی ڕزگار کوردی نییە.');
+  }
+
+  const localUrl =
+    `${import.meta.env.BASE_URL}gapless-timing/${RIZGAR_RECITER_ID}.db`;
+
+  const candidates = [
+    localUrl,
+    config.timingDbUrl,
+  ];
+
+  let buffer: ArrayBuffer | null = null;
+
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, {
+        cache: 'force-cache',
+      });
+
+      if (response.ok) {
+        buffer = await response.arrayBuffer();
+        break;
+      }
+    } catch {
+      // Try the next Rizgar timing DB source.
+    }
+  }
+
+  if (!buffer) {
+    throw new Error(
+      'DB ـی timing ـی ڕزگار نەکرا بار بکرێت.',
+    );
+  }
+
+  const SQL = await initSqlJs({
+    locateFile: () => SQL_WASM_URL,
+  });
+
+  const db = new SQL.Database(
+    new Uint8Array(buffer),
+  );
+
+  try {
+    const quote = (value: string) =>
+      `"${value.replace(/"/g, '""')}"`;
+
+    const normalize = (value: string) =>
+      value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const findColumn = (
+      columns: string[],
+      candidates: string[],
+    ) => {
+      const wanted = new Set(
+        candidates.map(normalize),
+      );
+
+      return (
+        columns.find((column) =>
+          wanted.has(normalize(column)),
+        ) ?? null
+      );
+    };
+
+    const inferSurahFromTable = (
+      tableName: string,
+    ): number | null => {
+      const match = tableName.match(
+        /(?:^|[^0-9])(\\d{1,3})(?:[^0-9]|$)/,
+      );
+
+      if (!match) return null;
+
+      const value = Number(match[1]);
+      return value >= 1 && value <= 114
+        ? value
+        : null;
+    };
+
+    const tablesResult = db.exec(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    );
+
+    const tableNames =
+      tablesResult[0]?.values
+        .map((row) => String(row[0] ?? ''))
+        .filter(Boolean) ?? [];
+
+    const collected: TimingRow[] = [];
+
+    for (const tableName of tableNames) {
+      let infoResult: any[];
+
+      try {
+        infoResult = db.exec(
+          `PRAGMA table_info(${quote(tableName)})`,
+        );
+      } catch {
+        continue;
+      }
+
+      const columns =
+        infoResult[0]?.values
+          .map((row) => String(row[1] ?? ''))
+          .filter(Boolean) ?? [];
+
+      const surahColumn = findColumn(columns, [
+        'surah',
+        'sura',
+        'surah_number',
+        'sura_number',
+        'surahnumber',
+        'chapter',
+        'chapter_number',
+        'chapternumber',
+        'surah_id',
+        'sura_id',
+      ]);
+
+      const ayahColumn = findColumn(columns, [
+        'ayah',
+        'aya',
+        'ayah_number',
+        'aya_number',
+        'ayahnumber',
+        'verse',
+        'verse_number',
+        'versenumber',
+      ]);
+
+      const startColumn = findColumn(columns, [
+        'start',
+        'start_time',
+        'start_ms',
+        'starttime',
+        'starttimems',
+        'time',
+        'time_ms',
+        'timestamp',
+        'from',
+        'begin',
+        'begin_time',
+      ]);
+
+      const endColumn = findColumn(columns, [
+        'end',
+        'end_time',
+        'end_ms',
+        'endtime',
+        'endtimems',
+        'to',
+        'finish',
+        'finish_time',
+      ]);
+
+      if (!ayahColumn || !startColumn) {
+        continue;
+      }
+
+      const tableSurah = inferSurahFromTable(tableName);
+
+      if (
+        !surahColumn &&
+        tableSurah !== null &&
+        tableSurah !== surahNumber
+      ) {
+        continue;
+      }
+
+      const selected = [
+        surahColumn ? quote(surahColumn) : null,
+        quote(ayahColumn),
+        quote(startColumn),
+        endColumn ? quote(endColumn) : null,
+      ].filter(Boolean).join(', ');
+
+      let result: any[];
+
+      try {
+        result = db.exec(
+          `SELECT ${selected} FROM ${quote(tableName)}`,
+        );
+      } catch {
+        continue;
+      }
+
+      const values = result[0]?.values ?? [];
+
+      for (const row of values) {
+        let offset = 0;
+
+        const rowSurah = surahColumn
+          ? Number(row[offset++])
+          : tableSurah;
+
+        const ayah = Number(row[offset++]);
+        const startRaw = Number(row[offset++]);
+        const endRaw = endColumn
+          ? Number(row[offset])
+          : NaN;
+
+        if (
+          rowSurah !== surahNumber ||
+          !Number.isInteger(ayah) ||
+          ayah < 1 ||
+          !Number.isFinite(startRaw)
+        ) {
+          continue;
+        }
+
+        const toSeconds = (value: number) => {
+          if (!Number.isFinite(value) || value < 0) {
+            return 0;
+          }
+
+          return value > 1000
+            ? value / 1000
+            : value;
+        };
+
+        const start = toSeconds(startRaw);
+        const explicitEnd = Number.isFinite(endRaw)
+          ? toSeconds(endRaw)
+          : null;
+
+        collected.push({
+          surah: surahNumber,
+          ayah,
+          start,
+          end:
+            explicitEnd !== null &&
+            explicitEnd >= start
+              ? explicitEnd
+              : start,
+        });
+      }
+    }
+
+    const unique = new Map<number, TimingRow>();
+
+    for (const row of collected) {
+      const old = unique.get(row.ayah);
+
+      if (!old || row.start < old.start) {
+        unique.set(row.ayah, row);
+      }
+    }
+
+    const rows = [...unique.values()].sort(
+      (a, b) => a.ayah - b.ayah,
+    );
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const current = rows[i];
+      const next = rows[i + 1];
+
+      if (
+        current.end <= current.start &&
+        next &&
+        next.start > current.start
+      ) {
+        current.end = next.start;
+      } else if (current.end <= current.start) {
+        current.end = current.start + 0.5;
+      }
+    }
+
+    if (!rows.length) {
+      throw new Error(
+        `هیچ timing ـێکی ڕزگار بۆ سورەتی ${surahNumber} نەدۆزرایەوە.`,
+      );
+    }
+
+    return rows;
   } finally {
     db.close();
   }
