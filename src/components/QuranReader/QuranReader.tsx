@@ -1648,6 +1648,20 @@ export function QuranReader({
       audio.load();
     }
 
+    const rizgarSource = rizgarAudioSourceRef.current;
+    if (rizgarSource) {
+      try {
+        rizgarSource.stop();
+      } catch {
+        // Already stopped.
+      }
+      rizgarSource.disconnect();
+      rizgarAudioSourceRef.current = null;
+    }
+    rizgarWebAudioPlayingRef.current = false;
+    rizgarWebAudioOffsetRef.current = 0;
+    rizgarWebAudioTimeRef.current = 0;
+
     setPlayingAyah(null);
     setIsPlaying(false);
     setIsLoading(false);
@@ -1692,6 +1706,22 @@ export function QuranReader({
         audio.removeAttribute('src');
         audio.load();
       }
+
+      const source = rizgarAudioSourceRef.current;
+      if (source) {
+        try {
+          source.stop();
+        } catch {
+          // Already stopped.
+        }
+        source.disconnect();
+        rizgarAudioSourceRef.current = null;
+      }
+
+      rizgarWebAudioPlayingRef.current = false;
+      rizgarAudioContextRef.current?.close().catch(() => {});
+      rizgarAudioContextRef.current = null;
+      rizgarAudioBufferCacheRef.current.clear();
     };
   }, []);
 
@@ -2716,62 +2746,46 @@ export function QuranReader({
     timingRows,
   ]);
 
-  // Rizgar-only: timeupdate can be throttled on mobile browsers.
-  // Follow the actual audio clock with requestAnimationFrame while playing.
+  // Rizgar-only: Web Audio's clock drives the highlight continuously.
   useEffect(() => {
-    const audio = audioRef.current;
-
-    const stopLoop = () => {
+    if (selectedReciter?.id !== RIZGAR_RECITER_ID) {
       if (rizgarHighlightRafRef.current !== null) {
         cancelAnimationFrame(rizgarHighlightRafRef.current);
         rizgarHighlightRafRef.current = null;
       }
-    };
-
-    if (
-      !audio ||
-      selectedReciter?.id !== RIZGAR_RECITER_ID
-    ) {
-      stopLoop();
       return;
     }
 
     const tick = () => {
-      if (audio.paused || audio.ended) {
-        rizgarHighlightRafRef.current = null;
-        return;
-      }
+      const context = rizgarAudioContextRef.current;
+      const source = rizgarAudioSourceRef.current;
 
-      handleTimeUpdate();
-      rizgarHighlightRafRef.current = requestAnimationFrame(tick);
-    };
-
-    const startLoop = () => {
       if (
-        rizgarHighlightRafRef.current === null
+        context &&
+        source?.buffer &&
+        rizgarWebAudioPlayingRef.current
       ) {
-        rizgarHighlightRafRef.current =
-          requestAnimationFrame(tick);
+        rizgarWebAudioTimeRef.current =
+          Math.min(
+            context.currentTime -
+              rizgarWebAudioStartedAtRef.current,
+            source.buffer.duration,
+          );
+        handleTimeUpdate();
       }
+
+      rizgarHighlightRafRef.current =
+        requestAnimationFrame(tick);
     };
 
-    const handlePause = () => stopLoop();
-
-    audio.addEventListener('play', startLoop);
-    audio.addEventListener('playing', startLoop);
-    audio.addEventListener('pause', handlePause);
-    audio.addEventListener('ended', handlePause);
-
-    if (!audio.paused) {
-      startLoop();
-    }
+    rizgarHighlightRafRef.current =
+      requestAnimationFrame(tick);
 
     return () => {
-      audio.removeEventListener('play', startLoop);
-      audio.removeEventListener('playing', startLoop);
-      audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('ended', handlePause);
-      stopLoop();
+      if (rizgarHighlightRafRef.current !== null) {
+        cancelAnimationFrame(rizgarHighlightRafRef.current);
+        rizgarHighlightRafRef.current = null;
+      }
     };
   }, [
     handleTimeUpdate,
