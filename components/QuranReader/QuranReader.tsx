@@ -942,255 +942,156 @@ const getInitialReciter = (
   return reciters[0] ?? null;
 };
 
-const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
-  if (rizgarTimingRowsPromise) {
-    return rizgarTimingRowsPromise;
-  }
+const RIZGAR_AYAH_COUNTS = [
+  7,286,200,176,120,165,206,75,129,109,123,111,43,52,99,128,111,110,98,135,112,78,118,64,77,227,93,88,69,60,34,30,73,54,45,83,182,88,75,85,54,53,89,59,37,35,38,29,18,45,60,49,62,55,78,96,29,22,24,13,14,11,11,18,12,12,30,52,44,28,28,20,56,40,31,50,40,46,42,29,19,36,25,22,17,19,26,30,20,15,21,11,8,8,19,5,8,8,11,11,8,3,9,5,4,7,3,6,3,5,4,5,6,6,3,5,4,5,6,6,3,5,4
+];
 
-  // Rizgar uses the original Hiwa Salih release asset directly:
-  //   - the 114 MP3 files from the rzgar_kurdi_mutasil release
-  //   - rzgar_kurdi_mutasil.db as the Ayah Data/timing source
-  //
-  // The DB is intentionally parsed as an Ayah Data database here rather than
-  // going through the generic MP3Quran timing system. Some versions of the
-  // database store the surah number in the table name instead of a "surah"
-  // column, so both layouts are supported.
+const getSurahAyahFromGlobal = (globalNumber: number): { surah: number; ayah: number } | null => {
+  if (!Number.isInteger(globalNumber) || globalNumber < 1) return null;
+  let remaining = globalNumber;
+  for (let surah = 1; surah <= RIZGAR_AYAH_COUNTS.length; surah += 1) {
+    const count = RIZGAR_AYAH_COUNTS[surah - 1];
+    if (remaining <= count) return { surah, ayah: remaining };
+    remaining -= count;
+  }
+  return null;
+};
+
+const loadRizgarTimingRows = async (): Promise<TimingRow[]> => {
+  if (rizgarTimingRowsPromise) return rizgarTimingRowsPromise;
+
   rizgarTimingRowsPromise = (async () => {
-    const response = await fetch(RIZGAR_TIMING_DB_URL, {
-      cache: 'force-cache',
-    });
+    const response = await fetch(RIZGAR_TIMING_DB_URL, { cache: 'force-cache' });
 
     if (!response.ok) {
-      throw new Error(
-        `Rizgar Ayah Data DB: ${response.status}`,
-      );
+      throw new Error(`Rizgar Ayah Data DB: ${response.status}`);
     }
 
     const buffer = await response.arrayBuffer();
+    const SQL = await initSqlJs({ locateFile: () => SQL_WASM_URL });
+    const db = new SQL.Database(new Uint8Array(buffer));
 
-    const SQL = await initSqlJs({
-      locateFile: () => SQL_WASM_URL,
-    });
-
-    const db = new SQL.Database(
-      new Uint8Array(buffer),
-    );
-
-    const inferSurahFromTableName = (
-      tableName: string,
-    ): number | null => {
-      const normalized = tableName.trim();
-
-      const direct = Number(normalized);
-      if (
-        Number.isInteger(direct) &&
-        direct >= 1 &&
-        direct <= 114
-      ) {
-        return direct;
-      }
-
-      const match = normalized.match(
-        /(?:surah|sura|chapter)[_ -]?(\\d{1,3})$/i,
-      );
-
+    const inferSurahFromTableName = (tableName: string): number | null => {
+      const direct = Number(tableName.trim());
+      if (Number.isInteger(direct) && direct >= 1 && direct <= 114) return direct;
+      const match = tableName.trim().match(/(?:surah|sura|chapter)[_ -]?(\d{1,3})$/i);
       if (!match) return null;
-
       const value = Number(match[1]);
-
-      return Number.isInteger(value) &&
-        value >= 1 &&
-        value <= 114
-        ? value
-        : null;
+      return Number.isInteger(value) && value >= 1 && value <= 114 ? value : null;
     };
 
     const normalizeTime = (value: unknown): number => {
       const number = Number(value);
-
-      if (!Number.isFinite(number) || number < 0) {
-        return 0;
-      }
-
-      return number > 1000
-        ? number / 1000
-        : number;
+      if (!Number.isFinite(number) || number < 0) return 0;
+      return number > 1000 ? number / 1000 : number;
     };
 
     try {
       const tablesResult = db.exec(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
       );
-
-      const tableNames =
-        tablesResult[0]?.values
-          .map((row) => String(row[0]))
-          .filter(Boolean) ?? [];
-
+      const tableNames = tablesResult[0]?.values.map((row) => String(row[0])).filter(Boolean) ?? [];
       const allRows: TimingRow[] = [];
 
       for (const tableName of tableNames) {
-        const safeTableName = tableName.replace(
-          /"/g,
-          '""',
-        );
-
+        const safeTableName = tableName.replace(/"/g, '""');
         let infoResult: any[];
-
         try {
-          infoResult = db.exec(
-            `PRAGMA table_info("${safeTableName}")`,
-          );
+          infoResult = db.exec(`PRAGMA table_info("${safeTableName}")`);
         } catch {
           continue;
         }
 
-        const columns =
-          infoResult[0]?.values
-            .map((row) => String(row[1]))
-            .filter(Boolean) ?? [];
+        const columns = infoResult[0]?.values.map((row) => String(row[1])).filter(Boolean) ?? [];
 
-        const surahColumn = pickTimingColumn(
-          columns,
-          [
-            'surah',
-            'sura',
-            'surah_number',
-            'sura_number',
-            'chapter',
-            'chapter_number',
-          ],
-        );
+        const surahColumn = pickTimingColumn(columns, [
+          'surah','sura','surah_number','sura_number','surah_id','sura_id','chapter','chapter_number','chapter_id',
+        ]);
+        const ayahColumn = pickTimingColumn(columns, [
+          'ayah','aya','ayah_number','aya_number','verse','verse_number','verse_id','ayah_id','aya_id',
+        ]);
+        const globalAyahColumn = pickTimingColumn(columns, [
+          'global_ayah','global_ayah_number','globalAyah','global_verse','global_verse_number','global_id','index','ayah_index','verse_index','id',
+        ]);
+        const startColumn = pickTimingColumn(columns, [
+          'start','start_time','start_ms','starttime','start_at','start_seconds','from','begin','begin_time','timestamp',
+        ]);
+        const endColumn = pickTimingColumn(columns, [
+          'end','end_time','end_ms','endtime','end_at','end_seconds','to','finish','finish_time',
+        ]);
+        const durationColumn = pickTimingColumn(columns, [
+          'duration','duration_ms','duration_seconds','length',
+        ]);
 
-        const ayahColumn = pickTimingColumn(
-          columns,
-          [
-            'ayah',
-            'aya',
-            'ayah_number',
-            'aya_number',
-            'verse',
-            'verse_number',
-            'verse_id',
-            'ayah_id',
-          ],
-        );
+        if (!startColumn || (!endColumn && !durationColumn)) continue;
 
-        const startColumn = pickTimingColumn(
-          columns,
-          [
-            'start',
-            'start_time',
-            'start_ms',
-            'starttime',
-            'start_at',
-            'from',
-            'begin',
-            'begin_time',
-          ],
-        );
-
-        const endColumn = pickTimingColumn(
-          columns,
-          [
-            'end',
-            'end_time',
-            'end_ms',
-            'endtime',
-            'end_at',
-            'to',
-            'finish',
-            'finish_time',
-          ],
-        );
-
-        if (
-          !ayahColumn ||
-          !startColumn ||
-          !endColumn
-        ) {
-          continue;
-        }
-
-        const quote = (column: string) =>
-          `"${column.replace(/"/g, '""')}"`;
+        const quote = (column: string) => `"${column.replace(/"/g, '""')}"`;
+        const selectedColumns = [
+          surahColumn ? quote(surahColumn) : null,
+          ayahColumn ? quote(ayahColumn) : null,
+          globalAyahColumn ? quote(globalAyahColumn) : null,
+          quote(startColumn),
+          endColumn ? quote(endColumn) : null,
+          durationColumn ? quote(durationColumn) : null,
+        ].filter(Boolean).join(', ');
 
         let result: any[];
-
         try {
-          const selectedColumns = [
-            surahColumn
-              ? quote(surahColumn)
-              : null,
-            quote(ayahColumn),
-            quote(startColumn),
-            quote(endColumn),
-          ].filter(Boolean).join(', ');
-
-          result = db.exec(
-            `SELECT ${selectedColumns} FROM "${safeTableName}"`,
-          );
+          result = db.exec(`SELECT ${selectedColumns} FROM "${safeTableName}"`);
         } catch {
           continue;
         }
 
         const rows = result[0];
         if (!rows) continue;
-
-        const inferredSurah =
-          inferSurahFromTableName(tableName);
+        const inferredSurah = inferSurahFromTableName(tableName);
 
         for (const row of rows.values) {
-          const offset = surahColumn ? 1 : 0;
-          const surah = surahColumn
-            ? Number(row[0])
-            : Number(inferredSurah ?? 0);
-          const ayah = Number(row[offset]);
-          const start = normalizeTime(
-            row[offset + 1],
-          );
-          const end = normalizeTime(
-            row[offset + 2],
-          );
+          let offset = 0;
+          const rawSurah = surahColumn ? Number(row[offset++]) : NaN;
+          const rawAyah = ayahColumn ? Number(row[offset++]) : NaN;
+          const rawGlobalAyah = globalAyahColumn ? Number(row[offset++]) : NaN;
+          const start = normalizeTime(row[offset++]);
+          const rawEnd = endColumn ? row[offset++] : undefined;
+          const rawDuration = durationColumn ? row[offset++] : undefined;
+
+          let surah = Number.isInteger(rawSurah) ? rawSurah : inferredSurah ?? 0;
+          let ayah = Number.isInteger(rawAyah) ? rawAyah : 0;
+
+          if ((!surah || surah < 1 || surah > 114 || !ayah || ayah < 1) && Number.isInteger(rawGlobalAyah)) {
+            const mapped = getSurahAyahFromGlobal(rawGlobalAyah);
+            if (mapped) {
+              surah = mapped.surah;
+              ayah = mapped.ayah;
+            }
+          }
+
+          const end = endColumn
+            ? normalizeTime(rawEnd)
+            : start + normalizeTime(rawDuration);
 
           if (
-            Number.isInteger(surah) &&
-            surah >= 1 &&
-            surah <= 114 &&
-            Number.isInteger(ayah) &&
-            ayah >= 1 &&
-            Number.isFinite(start) &&
-            Number.isFinite(end) &&
-            end >= start
+            Number.isInteger(surah) && surah >= 1 && surah <= 114 &&
+            Number.isInteger(ayah) && ayah >= 1 &&
+            Number.isFinite(start) && Number.isFinite(end) && end >= start
           ) {
-            allRows.push({
-              surah,
-              ayah,
-              start,
-              end,
-            });
+            allRows.push({ surah, ayah, start, end });
           }
         }
       }
 
       if (!allRows.length) {
-        throw new Error(
-          'هیچ Ayah Data ـێکی دروست لە rzgar_kurdi_mutasil.db نەدۆزرایەوە.',
-        );
+        throw new Error('هیچ Ayah Data ـێکی دروست لە rzgar_kurdi_mutasil.db نەدۆزرایەوە.');
       }
 
-      allRows.sort(
-        (a, b) =>
-          (a.surah ?? 0) - (b.surah ?? 0) ||
-          a.ayah - b.ayah ||
-          a.start - b.start,
+      allRows.sort((a, b) =>
+        (a.surah ?? 0) - (b.surah ?? 0) ||
+        a.ayah - b.ayah ||
+        a.start - b.start
       );
 
       try {
-        sessionStorage.setItem(
-          RIZGAR_TIMING_CACHE_KEY,
-          'loaded',
-        );
+        sessionStorage.setItem(RIZGAR_TIMING_CACHE_KEY, 'loaded');
       } catch {
         // Ignore session storage errors.
       }
