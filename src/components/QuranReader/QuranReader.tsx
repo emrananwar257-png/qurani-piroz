@@ -2031,7 +2031,10 @@ export function QuranReader({
               ),
             );
 
-            const seekAudioTo = async (target: number) => {
+            const seekAudioTo = async (
+              target: number,
+              waitForSeekComplete = false,
+            ) => {
               const clamped = Math.max(
                 0,
                 Math.min(
@@ -2053,8 +2056,13 @@ export function QuranReader({
               applySeek();
 
               if (
+                !waitForSeekComplete &&
                 Math.abs(audio.currentTime - clamped) <= 0.15
               ) {
+                return;
+              }
+
+              if (waitForSeekComplete && clamped === 0) {
                 return;
               }
 
@@ -2080,8 +2088,9 @@ export function QuranReader({
                   { once: true },
                 );
 
-                // Some mobile browsers need the seek command again
-                // after the media element has entered its seeking state.
+                // Match Android MediaPlayer: wait for the seek-complete
+                // callback before starting playback. This is important on
+                // mobile browsers where play() can otherwise restart at 0:00.
                 applySeek();
               });
 
@@ -2092,7 +2101,10 @@ export function QuranReader({
               }
             };
 
-            await seekAudioTo(timing.start);
+            await seekAudioTo(
+              timing.start,
+              selectedReciter.id === RIZGAR_RECITER_ID,
+            );
 
             if (
               requestId !== playRequestRef.current
