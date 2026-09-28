@@ -111,6 +111,19 @@ const KURDISH_RECITER_ALIASES: Array<{
   kurdishName: string;
 }> = [
   {
+    id: RIZGAR_RECITER_ID,
+    aliases: [
+      'rizgar muhammad kurdi',
+      'rizgar kurdi',
+      'rzgar kurdi',
+      'رزگار محمد الکردي',
+      'رزگار کوردی',
+      'ڕزگار محمد کوردی',
+      'ڕزگار کوردی',
+    ],
+    kurdishName: 'ڕزگار محەمەد کوردی',
+  },
+  {
     id: 'peshawa_kurdi',
     aliases: [
       'peshawa qadr al-kurdi',
@@ -459,16 +472,30 @@ async function fetchDynamicKurdishReciters(): Promise<
     }
   }
 
-  const ordered = KURDISH_RECITER_ALIASES
-    .map((alias) =>
-      unique.get(alias.id),
-    )
-    .filter(
-      (
-        item,
-      ): item is DynamicReciter =>
-        Boolean(item),
-    );
+  const ordered = [
+    unique.get(RIZGAR_RECITER_ID),
+    unique.get(RAAD_RECITER_ID),
+    ...KURDISH_RECITER_ALIASES
+      .filter(
+        (alias) =>
+          alias.id !== RIZGAR_RECITER_ID &&
+          alias.id !== RAAD_RECITER_ID,
+      )
+      .map((alias) =>
+        unique.get(alias.id),
+      )
+      .filter(
+        (
+          item,
+        ): item is DynamicReciter =>
+          Boolean(item),
+      ),
+  ].filter(
+    (
+      item,
+    ): item is DynamicReciter =>
+      Boolean(item),
+  );
 
   if (!ordered.length) {
     throw new Error(
@@ -2295,8 +2322,10 @@ export function QuranReader({
     }, [
       announceAudioPlaying,
       ayahs,
+      currentPage,
       getCurrentPageAyahIndex,
       playingAyah,
+      selectedSurahNumber,
       timingRows,
     ]);
 
