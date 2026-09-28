@@ -2003,6 +2003,23 @@ export function QuranReader({
             return;
           }
 
+          // ڕزگار: لە مۆبایلدا هەندێک browser دوای loadedmetadata
+          // seek ـەکە بە تەواوی جێگیر ناکات؛ بۆیە پێش play و دوای play
+          // هەردوو جارەکە شوێنی دەستپێکی ئایەتەکە پشتڕاست دەکەینەوە.
+          if (
+            selectedReciter.id === RIZGAR_RECITER_ID &&
+            timing
+          ) {
+            try {
+              audio.currentTime = Math.max(
+                0,
+                timing.start,
+              );
+            } catch {
+              // Ignore transient seek errors.
+            }
+          }
+
           if (timing) {
             const seekTo = Math.max(
               0,
@@ -2103,6 +2120,23 @@ export function QuranReader({
           if (requestId !== playRequestRef.current) {
             audio.pause();
             return;
+          }
+
+          // ڕزگار: دوای دەستپێکردنی HTMLAudioElement ـەکەش seek ـەکە
+          // دووبارە جێگیر بکە، بۆ ئەوەی هەرگیز لە 0:00 ـی سورەتەکە
+          // دەست پێ نەکات کاتێک ئایەتێکی دیاریکراو هەڵبژێردراوە.
+          if (
+            selectedReciter.id === RIZGAR_RECITER_ID &&
+            timing
+          ) {
+            try {
+              audio.currentTime = Math.max(
+                0,
+                timing.start,
+              );
+            } catch {
+              // Ignore transient seek errors.
+            }
           }
 
           setIsPlaying(true);
@@ -2466,13 +2500,29 @@ export function QuranReader({
               key={`ayah-${currentPage}-${box.surahNumber}-${box.ayahNumber}`}
               type="button"
               aria-label={`ئایەت ${box.surahNumber}:${box.ayahNumber}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                void playAyah({
-                  surahNumber: box.surahNumber,
-                  ayahNumber: box.ayahNumber,
-                });
-              }}
+              onPointerDown={
+                selectedReciter?.id === RIZGAR_RECITER_ID
+                  ? (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void playAyah({
+                        surahNumber: box.surahNumber,
+                        ayahNumber: box.ayahNumber,
+                      });
+                    }
+                  : undefined
+              }
+              onClick={
+                selectedReciter?.id === RIZGAR_RECITER_ID
+                  ? undefined
+                  : (event) => {
+                      event.stopPropagation();
+                      void playAyah({
+                        surahNumber: box.surahNumber,
+                        ayahNumber: box.ayahNumber,
+                      });
+                    }
+              }
               style={{
                 position: 'absolute',
                 left: `${box.left}%`,
