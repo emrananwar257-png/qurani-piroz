@@ -5896,7 +5896,11 @@ export const MushafPageView: React.FC<
                           WebkitUserSelect:
                             'none',
                           userSelect:
-                            'none'
+                            'none',
+                          filter:
+                            mushafStyle === 'colored'
+                              ? 'saturate(0.72) contrast(0.98) brightness(1.03)'
+                              : 'none'
                         }}
                       />
 
