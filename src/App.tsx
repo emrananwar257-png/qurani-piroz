@@ -50,7 +50,7 @@ const n = saved ? parseInt(saved, 10) : 1;
   const [mushafStyle, setMushafStyle] = useState<MushafStyleType>(() => {
     try {
       const saved = localStorage.getItem('quran_mushaf_style');
-      return saved === 'original' || saved === 'colored' || saved === 'bw' ? saved : 'bw';
+      return saved === 'original' || saved === 'colored' || saved === 'warm' || saved === 'bw' ? saved : 'bw';
     } catch {
       return 'bw';
     }
