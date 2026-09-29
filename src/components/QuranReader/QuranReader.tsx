@@ -238,7 +238,14 @@ const writeJsonCache = (
 const formatPageNum = (page: number): string =>
   String(page).padStart(3, '0');
 
+const KSU_TAJWEED_PAGE_BASE =
+  'https://quran.ksu.edu.sa/ayat/tajweed_png/';
+
 const pageImgUrl = (page: number, style: MushafStyleType = 'bw'): string => {
+  if (style === 'colored') {
+    return `${KSU_TAJWEED_PAGE_BASE}${page}.png`;
+  }
+
   const p = formatPageNum(page);
   return `${QURAN_PAGE_BASE}page${p}.png`;
 };
@@ -2940,11 +2947,9 @@ export function QuranReader({
                     filter:
                       mushafStyle === 'bw'
                         ? 'grayscale(100%) contrast(115%) brightness(102%)'
-                        : mushafStyle === 'colored'
-                          ? 'sepia(0.38) saturate(1.65) hue-rotate(335deg) contrast(103%) brightness(103%)'
-                          : mushafStyle === 'warm'
-                            ? 'sepia(0.22) saturate(0.9) contrast(103%) brightness(101%)'
-                            : 'none',
+                        : mushafStyle === 'warm'
+                          ? 'sepia(0.22) saturate(0.9) contrast(103%) brightness(101%)'
+                          : 'none',
                     mixBlendMode:
                       mushafStyle === 'bw'
                         ? 'multiply'
