@@ -24,7 +24,7 @@ export const RecitersModal: React.FC<RecitersModalProps> = ({
     value
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\\u0300-\\u036f]/g, '')
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/و{2,}/g, 'و')
       .replace(/[ڕر]/g, 'ر')
       .replace(/\s+/g, ' ')
