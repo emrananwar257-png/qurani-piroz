@@ -118,7 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Palette className="w-4 h-4 text-amber-600" />
               شێوازی باکگراوندی قورئان:
             </span>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { id: 'white', label: 'سپیی بەفری ⚪', desc: 'خاوێن و ڕۆشن' },
                 { id: 'cream', label: 'کاغەزی شاموا 📜', desc: 'موسحەفی مەدینە' },
@@ -147,7 +147,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {[
                 { id: 'bw', label: 'ڕەش و سپی', desc: 'شێوازی ئێستایی' },
                 { id: 'original', label: 'ئەسڵی', desc: 'بێ فلتەر' },
-                { id: 'colored', label: 'ڕەنگدار', desc: 'شێوازی ڕەنگدار' }
+                { id: 'colored', label: 'ڕەنگدار', desc: 'ڕەنگی ڕوون و نوێ' },
+                { id: 'warm', label: 'شاموا', desc: 'کاغەزی گەرم و ئارام' }
               ].map(style => (
                 <button
                   key={style.id}
