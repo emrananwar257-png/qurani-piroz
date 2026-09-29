@@ -32,7 +32,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   showKurdishNames,
   setShowKurdishNames,
   showNumbers,
-  setShowNumbers
+  setShowNumbers,
+  mushafStyle,
+  setMushafStyle
 }) => {
   const [activeTab, setActiveTab] = useState<'display' | 'reading' | 'translation' | 'audio'>('display');
 
@@ -135,6 +137,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
+          {/* شێوازی موسحەف */}
+          <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-xs">
+            <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+              <BookOpen className="w-4 h-4 text-amber-600" />
+              شێوازی موسحەف:
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'bw', label: 'ڕەش و سپی', desc: 'شێوازی ئێستایی' },
+                { id: 'original', label: 'ئەسڵی', desc: 'بێ فلتەر' },
+                { id: 'colored', label: 'ڕەنگدار', desc: 'شێوازی ڕەنگدار' }
+              ].map(style => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => setMushafStyle(style.id as MushafStyleType)}
+                  className={`p-3 rounded-2xl text-xs font-bold border transition-all text-center ${
+                    mushafStyle === style.id
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                      : 'bg-slate-50 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <span className="block">{style.label}</span>
+                  <span className={`text-[9px] block mt-1 ${
+                    mushafStyle === style.id ? 'text-white/80' : 'text-slate-400'
+                  }`}>{style.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           {/* زمان */}
           <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-xs">
             <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
