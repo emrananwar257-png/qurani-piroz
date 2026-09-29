@@ -68,7 +68,6 @@ const prepareSurah = async (surah) => {
 
   if (!(await existsAndNonEmpty(timingPath))) {
     console.log(`Downloading Ramadan Shakoor timing ${id}.json...`);
-    let response = null;
     let payload = null;
 
     for (const endpoint of TIMING_ENDPOINTS) {
@@ -88,7 +87,6 @@ const prepareSurah = async (surah) => {
           : [];
 
         if (candidateRaw.length) {
-          response = candidate;
           payload = candidatePayload;
           break;
         }
@@ -103,17 +101,6 @@ const prepareSurah = async (surah) => {
       );
     }
 
-    const raw = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload?.timing)
-      ? payload.timing
-      : Array.isArray(payload?.ayahs)
-      ? payload.ayahs
-      : [];;
-
-    const payload = await response.json();
     const raw = Array.isArray(payload)
       ? payload
       : Array.isArray(payload?.data)
