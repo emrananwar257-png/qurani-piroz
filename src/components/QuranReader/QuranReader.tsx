@@ -31,7 +31,7 @@ const MP3QURAN_API_BASE =
   'https://mp3quran.net/api/v3';
 
 const RIZGAR_RECITER_ID = 'rizgar_kurdi';
-const RAMADAN_SHAKOOR_RECITER_ID = 'ramadan_shakoor';
+const RAMADAN_SHAKOOR_RECITER_ID = 'ramazan_shukur';
 const RIZGAR_AUDIO_BASE =
   'https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/rzgar_kurdi_mutasil/';
 
@@ -153,7 +153,7 @@ const KURDISH_RECITER_ALIASES: Array<{
     kurdishName: 'ڕەعد کوردی',
   },
   {
-    id: 'ramadan_shakoor',
+    id: RAMADAN_SHAKOOR_RECITER_ID,
     aliases: [
       'ramadan shakoor',
       'ramadan shakur',
