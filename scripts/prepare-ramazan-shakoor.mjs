@@ -21,6 +21,7 @@ const TIMING_READ_ID = 227;
 const AUDIO_DIR = 'public/ramazan-shukur';
 const TIMING_DIR = 'public/ayah-timings/ramazan_shukur';
 const CONCURRENCY = 4;
+let timingSourceUnavailable = false;
 
 
 const existsAndNonEmpty = async (path) => {
@@ -66,11 +67,11 @@ const prepareSurah = async (surah) => {
     await rename(audioPart, audioPath);
   }
 
-  if (!(await existsAndNonEmpty(timingPath))) {
-    console.log(`Downloading Ramadan Shakoor timing ${id}.json...`);
+  if (!(await existsAndNonEmpty(timingPath)) && !timingSourceUnavailable) {
+    try {
+     console.log(`Downloading Ramadan Shakoor timing ${id}.json...`);
     let payload = null;
-
-    for (const endpoint of TIMING_ENDPOINTS) {
+     for (const endpoint of TIMING_ENDPOINTS) {
       try {
         const candidate = await fetchOrThrow(
           `${endpoint}?surah=${surah}&read=${TIMING_READ_ID}`
@@ -85,8 +86,7 @@ const prepareSurah = async (surah) => {
           : Array.isArray(candidatePayload?.ayahs)
           ? candidatePayload.ayahs
           : [];
-
-        if (candidateRaw.length) {
+         if (candidateRaw.length) {
           payload = candidatePayload;
           break;
         }
@@ -94,14 +94,12 @@ const prepareSurah = async (surah) => {
         // Try the next documented/legacy endpoint.
       }
     }
-
-    if (!payload) {
+     if (!payload) {
       throw new Error(
         `No Ramadan Shakoor timing data found for surah ${surah} using read ${TIMING_READ_ID}`
       );
     }
-
-    const raw = Array.isArray(payload)
+     const raw = Array.isArray(payload)
       ? payload
       : Array.isArray(payload?.data)
       ? payload.data
@@ -110,8 +108,7 @@ const prepareSurah = async (surah) => {
       : Array.isArray(payload?.ayahs)
       ? payload.ayahs
       : [];
-
-    const timings = raw
+     const timings = raw
       .map((item) => ({
         ayah: Number(item?.ayah ?? item?.ayah_number ?? item?.number),
         start_time:
@@ -128,15 +125,20 @@ const prepareSurah = async (surah) => {
           item.end_time > item.start_time
       )
       .sort((x, y) => x.ayah - y.ayah);
-
-    if (!timings.length) {
+     if (!timings.length) {
       throw new Error(`Empty timing data for surah ${surah}`);
     }
-
-    await writeFile(timingPart, JSON.stringify(timings));
+     await writeFile(timingPart, JSON.stringify(timings));
     await rename(timingPart, timingPath);
   }
 
+    } catch (error) {
+      timingSourceUnavailable = true;
+      console.warn(
+        `Ramadan Shakoor timing is not currently published by MP3Quran; continuing with local audio only. ${error.message}`
+      );
+    }
+  }
   console.log(`Ready: Ramadan Shakoor ${id}`);
 };
 

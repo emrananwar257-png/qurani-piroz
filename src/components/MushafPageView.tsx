@@ -561,9 +561,56 @@ const getRamadanShakoorTiming = async (
   const response = await fetch(url, { cache: 'force-cache' });
 
   if (!response.ok) {
-    throw new Error(
-      `Ramadan Shakoor local timing HTTP ${response.status} for surah ${surahNumber}`
-    );
+    const remoteUrl =
+      `https://mp3quran.net/api/v3/ayat_timing?surah=${surahNumber}&read=227`;
+
+    const remoteResponse = await fetch(remoteUrl, {
+      cache: 'no-store'
+    });
+
+    if (!remoteResponse.ok) {
+      throw new Error(
+        `Ramadan Shakoor timing unavailable locally and remotely for surah ${surahNumber}`
+      );
+    }
+
+    const remoteData = await remoteResponse.json();
+    const remoteRaw = Array.isArray(remoteData)
+      ? remoteData
+      : Array.isArray(remoteData?.data)
+      ? remoteData.data
+      : Array.isArray(remoteData?.timing)
+      ? remoteData.timing
+      : Array.isArray(remoteData?.ayahs)
+      ? remoteData.ayahs
+      : [];
+
+    const remoteTimings = remoteRaw
+      .map((item: any) => ({
+        ayah: Number(item?.ayah ?? item?.ayah_number ?? item?.number),
+        start_time:
+          Number(item?.start_time ?? item?.start ?? item?.startTime) / 1000,
+        end_time:
+          Number(item?.end_time ?? item?.end ?? item?.endTime) / 1000
+      }))
+      .filter(
+        (item: Mp3QuranTiming) =>
+          Number.isFinite(item.ayah) &&
+          item.ayah > 0 &&
+          Number.isFinite(item.start_time) &&
+          Number.isFinite(item.end_time) &&
+          item.end_time > item.start_time
+      )
+      .sort((x, y) => x.ayah - y.ayah);
+
+    if (!remoteTimings.length) {
+      throw new Error(
+        `Ramadan Shakoor timing is unavailable for surah ${surahNumber}`
+      );
+    }
+
+    ramadanShakoorTimingCache[cacheKey] = remoteTimings;
+    return remoteTimings;
   }
 
   const data = await response.json();
