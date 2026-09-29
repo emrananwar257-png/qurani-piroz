@@ -2002,6 +2002,30 @@ export function QuranReader({
         audio.pause();
 
         try {
+          const isRamadanShakoor =
+            selectedReciter.id ===
+            RAMADAN_SHAKOOR_RECITER_ID;
+
+          const src = makeSurahAudioUrl(
+            selectedReciter,
+            surahNumber,
+          );
+
+          // Android Quran starts MediaPlayer preparation independently
+          // of timing-data loading. Do the same for Ramadan: start the
+          // HTML audio request immediately from the user's gesture, then
+          // apply ayah timing when/if it becomes available.
+          let earlyPlayPromise: Promise<void> | null = null;
+
+          if (isRamadanShakoor) {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+            audio.src = src;
+            audio.load();
+            earlyPlayPromise = audio.play().catch(() => undefined);
+          }
+
           const rows =
             await timingForCurrentSurah(
               selectedReciter,
@@ -2022,14 +2046,11 @@ export function QuranReader({
               row.ayah === ayahNumber,
           );
 
-          const src = makeSurahAudioUrl(
-            selectedReciter,
-            surahNumber,
-          );
-
-          audio.pause();
-          audio.removeAttribute('src');
-          audio.load();
+          if (!isRamadanShakoor) {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+          }
 
           if (selectedReciter.id === RIZGAR_RECITER_ID) {
             if (rizgarObjectUrlRef.current) {
@@ -2088,15 +2109,15 @@ export function QuranReader({
             selectedReciter.id ===
             RAMADAN_SHAKOOR_RECITER_ID
           ) {
-            // Ramadan Shakoor: use the MP3Quran URL directly.
-            // Avoid fetch -> Blob here because the remote audio
-            // server may reject cross-origin browser fetches.
-            audio.src = src;
+            // Already loaded and started above, following the Android
+            // MediaPlayer flow (setDataSource -> prepare -> start).
           } else {
             audio.src = src;
           }
 
-          audio.load();
+          if (!isRamadanShakoor) {
+            audio.load();
+          }
 
           await waitForMetadata(audio);
 
@@ -2214,7 +2235,14 @@ export function QuranReader({
             setPlayingAyah(null);
           }
 
-          await audio.play();
+          if (isRamadanShakoor) {
+            await earlyPlayPromise;
+            if (audio.paused) {
+              await audio.play();
+            }
+          } else {
+            await audio.play();
+          }
 
           if (
             requestId !==
