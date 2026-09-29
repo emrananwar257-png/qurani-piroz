@@ -2049,65 +2049,11 @@ export function QuranReader({
             rizgarObjectUrlRef.current =
               objectUrl;
             audio.src = objectUrl;
-          } else if (
-            selectedReciter.id ===
-            RAMADAN_SHAKOOR_RECITER_ID
-          ) {
-            if (ramadanObjectUrlRef.current) {
-              URL.revokeObjectURL(
-                ramadanObjectUrlRef.current,
-              );
-              ramadanObjectUrlRef.current = null;
-            }
-
-            // Ramadan Shakoor uses the same local-full-surah
-            // approach as Rizgar so mobile seeking does not
-            // depend on remote MP3 range requests.
-            let blob = await getSurahAudio(
-              RAMADAN_SHAKOOR_RECITER_ID,
-              surahNumber,
-            );
-
-            if (!blob || blob.size === 0) {
-              const response = await fetch(src, {
-                cache: 'force-cache',
-              });
-
-              if (!response.ok) {
-                throw new Error(
-                  `فایلی دەنگییەکەی ڕەمەزان نەکرا بار بکرێت: ${response.status}`,
-                );
-              }
-
-              blob = await response.blob();
-
-              if (!blob.size) {
-                throw new Error(
-                  'فایلی دەنگییەکەی ڕەمەزان بەتاڵە.',
-                );
-              }
-
-              void saveSurahAudio(
-                RAMADAN_SHAKOOR_RECITER_ID,
-                surahNumber,
-                blob,
-              );
-            }
-
-            const typedBlob =
-              blob.type &&
-              blob.type.startsWith('audio/')
-                ? blob
-                : new Blob([blob], {
-                    type: 'audio/mpeg',
-                  });
-
-            const objectUrl =
-              URL.createObjectURL(typedBlob);
-            ramadanObjectUrlRef.current =
-              objectUrl;
-            audio.src = objectUrl;
           } else {
+            // Ramadan Shakoor: use the MP3Quran URL directly.
+            // Avoid fetch -> Blob here because the remote audio
+            // server may reject cross-origin browser fetches.
+            audio.src = src;
             audio.src = src;
           }
 
