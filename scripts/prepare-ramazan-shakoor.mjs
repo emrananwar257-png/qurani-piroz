@@ -11,48 +11,17 @@ const SURAH_LIST = [
 ];
 
 const AUDIO_BASE = 'https://server6.mp3quran.net/download/shakoor/';
-const TIMING_BASE = 'https://mp3quran.net/api/v3/ayat_timing';
-const TIMING_READS_URL = 'https://mp3quran.net/api/v3/ayat_timing/reads';
+const TIMING_ENDPOINTS = [
+  'https://mp3quran.net/api/v3/ayat_timing',
+  'https://mp3quran.net/api/ayat_timing',
+  'https://mp3quran.de/api/v3/ayat_timing',
+  'https://mp3quran.de/api/ayat_timing'
+];
+const TIMING_READ_ID = 227;
 const AUDIO_DIR = 'public/ramazan-shukur';
 const TIMING_DIR = 'public/ayah-timings/ramazan_shukur';
 const CONCURRENCY = 4;
 
-const discoverTimingRead = async () => {
-  const response = await fetchOrThrow(TIMING_READS_URL);
-  const payload = await response.json();
-  const reads = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload?.reads)
-    ? payload.reads
-    : [];
-
-  const normalized = reads.map((read) => ({
-    id: Number(read?.id),
-    name: String(read?.name ?? ''),
-    folder: String(read?.folder_url ?? read?.server ?? '')
-  }));
-
-  const match = normalized.find((read) => {
-    const haystack = `${read.name} ${read.folder}`.toLowerCase();
-    return (
-      haystack.includes('ramadan') ||
-      haystack.includes('ramazan') ||
-      haystack.includes('shakoor') ||
-      haystack.includes('shakur') ||
-      haystack.includes('شكور') ||
-      haystack.includes('شکور')
-    );
-  });
-
-  if (!match || !Number.isFinite(match.id)) {
-    throw new Error('Could not discover Ramadan Shakoor timing read from MP3Quran');
-  }
-
-  console.log(`Using Ramadan Shakoor timing read ${match.id}: ${match.name}`);
-  return match.id;
-};
 
 const existsAndNonEmpty = async (path) => {
   try {
@@ -75,7 +44,7 @@ const fetchOrThrow = async (url) => {
   return response;
 };
 
-const prepareSurah = async (surah, timingReadId) => {
+const prepareSurah = async (surah) => {
   const id = String(surah).padStart(3, '0');
   const audioPath = `${AUDIO_DIR}/${id}.mp3`;
   const audioPart = `${audioPath}.part`;
@@ -99,9 +68,50 @@ const prepareSurah = async (surah, timingReadId) => {
 
   if (!(await existsAndNonEmpty(timingPath))) {
     console.log(`Downloading Ramadan Shakoor timing ${id}.json...`);
-    const response = await fetchOrThrow(
-      `${TIMING_BASE}?surah=${surah}&read=${timingReadId}`
-    );
+    let response = null;
+    let payload = null;
+
+    for (const endpoint of TIMING_ENDPOINTS) {
+      try {
+        const candidate = await fetchOrThrow(
+          `${endpoint}?surah=${surah}&read=${TIMING_READ_ID}`
+        );
+        const candidatePayload = await candidate.json();
+        const candidateRaw = Array.isArray(candidatePayload)
+          ? candidatePayload
+          : Array.isArray(candidatePayload?.data)
+          ? candidatePayload.data
+          : Array.isArray(candidatePayload?.timing)
+          ? candidatePayload.timing
+          : Array.isArray(candidatePayload?.ayahs)
+          ? candidatePayload.ayahs
+          : [];
+
+        if (candidateRaw.length) {
+          response = candidate;
+          payload = candidatePayload;
+          break;
+        }
+      } catch {
+        // Try the next documented/legacy endpoint.
+      }
+    }
+
+    if (!payload) {
+      throw new Error(
+        `No Ramadan Shakoor timing data found for surah ${surah} using read ${TIMING_READ_ID}`
+      );
+    }
+
+    const raw = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload?.timing)
+      ? payload.timing
+      : Array.isArray(payload?.ayahs)
+      ? payload.ayahs
+      : [];;
 
     const payload = await response.json();
     const raw = Array.isArray(payload)
@@ -147,11 +157,10 @@ await mkdir(AUDIO_DIR, { recursive: true });
 await mkdir(TIMING_DIR, { recursive: true });
 
 console.log(`Preparing ${SURAH_LIST.length} Ramadan Shakoor surahs locally...`);
-const timingReadId = await discoverTimingRead();
 
 for (let i = 0; i < SURAH_LIST.length; i += CONCURRENCY) {
   const batch = SURAH_LIST.slice(i, i + CONCURRENCY);
-  await Promise.all(batch.map((surah) => prepareSurah(surah, timingReadId)));
+  await Promise.all(batch.map((surah) => prepareSurah(surah)));
 }
 
 console.log('Ramadan Shakoor local assets are ready.');
