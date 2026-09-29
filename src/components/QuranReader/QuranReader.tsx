@@ -2921,6 +2921,7 @@ export function QuranReader({
                 }}
               >
                 <img
+                  key={`mushaf-${page}-${mushafStyle}`}
                   src={pageImgUrl(
                     page,
                     mushafStyle,
