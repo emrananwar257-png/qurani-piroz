@@ -2049,11 +2049,15 @@ export function QuranReader({
             rizgarObjectUrlRef.current =
               objectUrl;
             audio.src = objectUrl;
-          } else {
+          } else if (
+            selectedReciter.id ===
+            RAMADAN_SHAKOOR_RECITER_ID
+          ) {
             // Ramadan Shakoor: use the MP3Quran URL directly.
             // Avoid fetch -> Blob here because the remote audio
             // server may reject cross-origin browser fetches.
             audio.src = src;
+          } else {
             audio.src = src;
           }
 
