@@ -7,6 +7,7 @@ import React, {
 } from 'react';
 import initSqlJs from 'sql.js';
 import { ALL_RECITERS_DIRECTORY } from '../../data/recitersList';
+import type { MushafStyleType } from '../../types';
 import {
   getSurahAudio,
   saveSurahAudio,
@@ -93,6 +94,7 @@ interface QuranReaderProps {
   showNumbers: boolean;
   surahsList?: SurahItem[];
   onJumpToPage?: (page: number) => void;
+  mushafStyle?: MushafStyleType;
 }
 
 interface Mp3Reciter {
@@ -2909,6 +2911,7 @@ export function QuranReader({
                 <img
                   src={pageImgUrl(
                     page,
+                    mushafStyle,
                   )}
                   alt={`Quran page ${page}`}
                   draggable={false}
@@ -2932,9 +2935,13 @@ export function QuranReader({
                     pointerEvents:
                       'none',
                     filter:
-                      'grayscale(100%) contrast(115%) brightness(102%)',
+                      mushafStyle === 'bw'
+                        ? 'grayscale(100%) contrast(115%) brightness(102%)'
+                        : 'none',
                     mixBlendMode:
-                      'multiply',
+                      mushafStyle === 'bw'
+                        ? 'multiply'
+                        : 'normal',
                   }}
                 />
 
