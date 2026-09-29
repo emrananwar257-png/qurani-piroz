@@ -20,11 +20,37 @@ export const RecitersModal: React.FC<RecitersModalProps> = ({
 
   if (!isOpen) return null;
 
+  const normalizeSearchText = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\\u0300-\\u036f]/g, '')
+      .replace(/و{2,}/g, 'و')
+      .replace(/[ڕر]/g, 'ر')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const normalizedQuery = normalizeSearchText(searchQuery);
+
   const filteredReciters = ALL_RECITERS_DIRECTORY.filter(r => {
     const matchesCategory = activeTab === 'all' || r.category === activeTab || (activeTab === 'kurdish' && r.category === 'kurdish_tafsir');
-    const matchesSearch = r.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          (r.subName && r.subName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                          r.riwayah.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const searchableText = normalizeSearchText(
+      [r.name, r.subName, r.riwayah].filter(Boolean).join(' ')
+    );
+
+    const extraRamadanSearchNames =
+      r.id === 'ramazan_shukur'
+        ? normalizeSearchText(
+            'رمضان شكور رمضان شكوور رەمەزان شاکور رەمەزان شکوور Ramazan Shakur Ramadan Shukur'
+          )
+        : '';
+
+    const matchesSearch =
+      !normalizedQuery ||
+      searchableText.includes(normalizedQuery) ||
+      extraRamadanSearchNames.includes(normalizedQuery);
+
     return matchesCategory && matchesSearch;
   });
 
