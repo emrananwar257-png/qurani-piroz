@@ -2942,7 +2942,9 @@ export function QuranReader({
                         ? 'grayscale(100%) contrast(115%) brightness(102%)'
                         : mushafStyle === 'colored'
                           ? 'sepia(0.38) saturate(1.65) hue-rotate(335deg) contrast(103%) brightness(103%)'
-                          : 'none',
+                          : mushafStyle === 'warm'
+                            ? 'sepia(0.22) saturate(0.9) contrast(103%) brightness(101%)'
+                            : 'none',
                     mixBlendMode:
                       mushafStyle === 'bw'
                         ? 'multiply'
