@@ -238,8 +238,13 @@ const writeJsonCache = (
 const formatPageNum = (page: number): string =>
   String(page).padStart(3, '0');
 
-const pageImgUrl = (page: number): string =>
-  `${QURAN_PAGE_BASE}page${formatPageNum(page)}.png`;
+const pageImgUrl = (page: number, style: MushafStyleType = 'bw'): string => {
+  const p = formatPageNum(page);
+  if (style === 'colored') {
+    return `https://e-quran.com/pic/p${p}.jpg`;
+  }
+  return `${QURAN_PAGE_BASE}page${p}.png`;
+};
 
 const normalizeTimingValue = (
   value: unknown,
@@ -1373,6 +1378,7 @@ export function QuranReader({
   showNumbers,
   surahsList,
   onJumpToPage,
+  mushafStyle = 'bw',
 }: QuranReaderProps) {
   const audioRef =
     useRef<HTMLAudioElement | null>(
