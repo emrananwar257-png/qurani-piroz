@@ -276,6 +276,7 @@ showNumbers={true}
           onJumpToPage={(page) =>
             setCurrentPage(page)
           }
+          mushafStyle={mushafStyle}
         />
       )}
 
