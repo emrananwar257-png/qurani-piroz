@@ -2205,26 +2205,29 @@ export const MushafPageView: React.FC<
         const url =
           `${base}${String(surahNumber).padStart(3, '0')}.mp3`;
 
-        const timings =
-          await getRamadanShakoorTiming(
-            surahNumber
+        let timings: Mp3QuranTiming[] = [];
+
+        try {
+          timings =
+            await getRamadanShakoorTiming(
+              surahNumber
+            );
+        } catch (error) {
+          console.warn(
+            'Ramadan Shakoor timing unavailable; audio will still play:',
+            error
           );
+        }
 
         const timing =
           timings.find(
             item => item.ayah === ayahNumber
-          );
-
-        if (!timing) {
-          throw new Error(
-            `کاتی ئایەتی ${surahNumber}:${ayahNumber} بۆ ڕەمەزان شکور نەدۆزرایەوە`
-          );
-        }
+          ) ?? null;
 
         return {
           url,
-          startTime: timing.start_time,
-          endTime: timing.end_time
+          startTime: timing?.start_time,
+          endTime: timing?.end_time
         };
       }
 
@@ -3699,19 +3702,27 @@ export const MushafPageView: React.FC<
           selectedReciter.audioSource ===
           'ramadan_shakoor'
         ) {
-          const timings =
-            await getRamadanShakoorTiming(
-              a.surahNumber
-            );
+          try {
+            const timings =
+              await getRamadanShakoorTiming(
+                a.surahNumber
+              );
 
-          gaplessActiveTimingRef.current =
-            timings.length
-              ? {
-                  surahNumber:
-                    a.surahNumber,
-                  timings
-                }
-              : null;
+            gaplessActiveTimingRef.current =
+              timings.length
+                ? {
+                    surahNumber:
+                      a.surahNumber,
+                    timings
+                  }
+                : null;
+          } catch (error) {
+            console.warn(
+              'Ramadan Shakoor timing unavailable; continuing with audio playback:',
+              error
+            );
+            gaplessActiveTimingRef.current = null;
+          }
         } else if (
           selectedReciter.audioSource ===
             'mp3quran' ||
