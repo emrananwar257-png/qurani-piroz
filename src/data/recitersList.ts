@@ -166,7 +166,7 @@ export const ALL_RECITERS_DIRECTORY: ReciterItem[] = [
   {
     id: 'ramazan_shukur',
     name: 'ڕەمەزان شکوور کوردی',
-    subName: 'Ramazan Shakur',
+    subName: 'Ramadan Shukur',
     category: 'kurdish',
     riwayah: 'حەفس لەسەر عاسم',
     serverKey: 'Ramazan_Shukur',
