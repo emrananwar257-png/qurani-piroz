@@ -4,6 +4,8 @@ import { SURAHS_INDEX } from './data/surahsData';
 import { SurahListView } from './components/SurahListView';
 import { MushafPageView } from './components/MushafPageView';
 import { QuranReader } from './components/QuranReader/QuranReader';
+import { SettingsModal } from './components/SettingsModal';
+import type { MushafStyleType } from './types';
 
 type ReaderMode = 'old' | 'new';
 
@@ -45,6 +47,17 @@ const n = saved ? parseInt(saved, 10) : 1;
 
 * ئەگەر هەر کێشەیەک هەبوو دەتوانین بە ئاسانی بیکەینە old.
   */
+  const [mushafStyle, setMushafStyle] = useState<MushafStyleType>(() => {
+    try {
+      const saved = localStorage.getItem('quran_mushaf_style');
+      return saved === 'original' || saved === 'colored' || saved === 'bw' ? saved : 'bw';
+    } catch {
+      return 'bw';
+    }
+  });
+
+  const [showSettings, setShowSettings] = useState(false);
+
   const [readerMode, setReaderMode] = useState<ReaderMode>(() => {
   try {
   const saved = localStorage.getItem('quran_reader_mode');
@@ -78,6 +91,12 @@ readerMode
 );
 } catch {}
 }, [readerMode]);
+
+useEffect(() => {
+  try {
+    localStorage.setItem('quran_mushaf_style', mushafStyle);
+  } catch {}
+}, [mushafStyle]);
 
 /*
 
@@ -199,7 +218,7 @@ dir="rtl"
 <SurahListView
 surahs={SURAHS_INDEX}
 onOpenSurah={openSurahPage}
-onOpenSettings={() => {}}
+onOpenSettings={() => setShowSettings(true)}
 bgStyle="white"
 appLang="ku"
 accentColor="gold"
@@ -207,6 +226,30 @@ showKurdishNames={true}
 showNumbers={true}
 />
 )}
+
+  {showSettings && view === 'index' && (
+    <div className="fixed inset-0 z-[200] bg-black/40 overflow-y-auto p-2 sm:p-4">
+      <div className="min-h-full flex items-start justify-center py-3 sm:py-6">
+        <div className="w-full max-w-xl bg-slate-50 rounded-3xl shadow-2xl overflow-hidden">
+          <SettingsModal
+            onClose={() => setShowSettings(false)}
+            bgStyle="white"
+            setBgStyle={() => {}}
+            appLang="ku"
+            setAppLang={() => {}}
+            accentColor="gold"
+            setAccentColor={() => {}}
+            showKurdishNames={true}
+            setShowKurdishNames={() => {}}
+            showNumbers={true}
+            setShowNumbers={() => {}}
+            mushafStyle={mushafStyle}
+            setMushafStyle={setMushafStyle}
+          />
+        </div>
+      </div>
+    </div>
+  )}
 
   {view === 'mushaf' && (
     <>
@@ -233,6 +276,7 @@ showNumbers={true}
           onJumpToPage={(page) =>
             setCurrentPage(page)
           }
+          mushafStyle={mushafStyle}
         />
       )}
 
