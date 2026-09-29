@@ -3826,22 +3826,27 @@ export const MushafPageView: React.FC<
         if (
           selectedReciter.id === 'rizgar_kurdi'
         ) {
-          await new Promise<void>((resolve, reject) => {
-            const onLoaded = () => {
-              cleanup();
-              resolve();
-            };
-            const onError = () => {
-              cleanup();
-              reject(new Error('Rizgar audio metadata load failed'));
-            };
-            const cleanup = () => {
-              audio.removeEventListener('loadedmetadata', onLoaded);
-              audio.removeEventListener('error', onError);
-            };
-            audio.addEventListener('loadedmetadata', onLoaded);
-            audio.addEventListener('error', onError);
-          });
+          // The metadata event can fire very quickly after audio.load()
+          // on mobile. Check readyState first so Rizgar never waits
+          // forever for an event that already happened.
+          if (audio.readyState < 1) {
+            await new Promise<void>((resolve, reject) => {
+              const onLoaded = () => {
+                cleanup();
+                resolve();
+              };
+              const onError = () => {
+                cleanup();
+                reject(new Error('Rizgar audio metadata load failed'));
+              };
+              const cleanup = () => {
+                audio.removeEventListener('loadedmetadata', onLoaded);
+                audio.removeEventListener('error', onError);
+              };
+              audio.addEventListener('loadedmetadata', onLoaded, { once: true });
+              audio.addEventListener('error', onError, { once: true });
+            });
+          }
         }
 
         // Single-ayah playback must stop at the selected ayah's
