@@ -547,54 +547,33 @@ const getRamadanShakoorTiming = async (
 ): Promise<Mp3QuranTiming[]> => {
   const cacheKey = String(surahNumber);
 
-  if (ramadanShakoorTimingCache[cacheKey]) {
+  if (Object.prototype.hasOwnProperty.call(ramadanShakoorTimingCache, cacheKey)) {
     return ramadanShakoorTimingCache[cacheKey];
   }
 
-  const response = await fetch(
-    `https://mp3quran.net/api/v3/ayat_timing?surah=${surahNumber}&read=227`
+  const base = String(
+    (import.meta as any).env?.BASE_URL || '/'
   );
+
+  const url =
+    `${base}ayah-timings/ramazan_shukur/${String(surahNumber).padStart(3, '0')}.json`;
+
+  const response = await fetch(url, { cache: 'force-cache' });
 
   if (!response.ok) {
     throw new Error(
-      `Ramadan Shakoor timing HTTP ${response.status}`
+      `Ramadan Shakoor local timing HTTP ${response.status} for surah ${surahNumber}`
     );
   }
 
   const data = await response.json();
-  const raw = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.data)
-    ? data.data
-    : Array.isArray(data?.ayat)
-    ? data.ayat
-    : Array.isArray(data?.timing)
-    ? data.timing
-    : Array.isArray(data?.ayahs)
-    ? data.ayahs
-    : [];
+  const raw = Array.isArray(data) ? data : [];
 
   const timings = raw
     .map((item: any) => ({
-      ayah: Number(
-        item?.ayah ??
-          item?.ayah_number ??
-          item?.number
-      ),
-      start_time: normalizeTimingValue(
-        Number(
-          item?.start_time ??
-            item?.start ??
-            item?.startTime
-        )
-      ),
-      end_time: normalizeTimingValue(
-        Number(
-          item?.end_time ??
-            item?.end ??
-            item?.endTime
-        )
-      )
+      ayah: Number(item?.ayah),
+      start_time: Number(item?.start_time ?? item?.start),
+      end_time: Number(item?.end_time ?? item?.end)
     }))
     .filter(
       (item: Mp3QuranTiming) =>
@@ -604,18 +583,17 @@ const getRamadanShakoorTiming = async (
         Number.isFinite(item.end_time) &&
         item.end_time > item.start_time
     )
-    .sort((a, b) => a.ayah - b.ayah);
+    .sort((x, y) => x.ayah - y.ayah);
 
   if (!timings.length) {
     throw new Error(
-      `Ramadan Shakoor timing is empty for surah ${surahNumber}`
+      `Ramadan Shakoor local timing is empty for surah ${surahNumber}`
     );
   }
 
   ramadanShakoorTimingCache[cacheKey] = timings;
   return timings;
 };
-
 const manualTimingCache: Record<
   string,
   Mp3QuranTiming[] | null
@@ -2190,20 +2168,12 @@ export const MushafPageView: React.FC<
         }
 
         const base =
-          reciter.audioBaseUrl?.endsWith('/')
-            ? reciter.audioBaseUrl
-            : reciter.audioBaseUrl
-            ? `${reciter.audioBaseUrl}/`
-            : '';
-
-        if (!base) {
-          throw new Error(
-            'URL ـی دەنگی ڕەمەزان شکور نەدۆزرایەوە'
+          String(
+            (import.meta as any).env?.BASE_URL || '/'
           );
-        }
 
         const url =
-          `${base}${String(surahNumber).padStart(3, '0')}.mp3`;
+          `${base}ramazan-shukur/${String(surahNumber).padStart(3, '0')}.mp3`
 
         let timings: Mp3QuranTiming[] = [];
 
