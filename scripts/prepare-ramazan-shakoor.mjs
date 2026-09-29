@@ -69,69 +69,76 @@ const prepareSurah = async (surah) => {
 
   if (!(await existsAndNonEmpty(timingPath)) && !timingSourceUnavailable) {
     try {
-     console.log(`Downloading Ramadan Shakoor timing ${id}.json...`);
-    let payload = null;
-     for (const endpoint of TIMING_ENDPOINTS) {
-      try {
-        const candidate = await fetchOrThrow(
-          `${endpoint}?surah=${surah}&read=${TIMING_READ_ID}`
-        );
-        const candidatePayload = await candidate.json();
-        const candidateRaw = Array.isArray(candidatePayload)
-          ? candidatePayload
-          : Array.isArray(candidatePayload?.data)
-          ? candidatePayload.data
-          : Array.isArray(candidatePayload?.timing)
-          ? candidatePayload.timing
-          : Array.isArray(candidatePayload?.ayahs)
-          ? candidatePayload.ayahs
-          : [];
-         if (candidateRaw.length) {
-          payload = candidatePayload;
-          break;
-        }
-      } catch {
-        // Try the next documented/legacy endpoint.
-      }
-    }
-     if (!payload) {
-      throw new Error(
-        `No Ramadan Shakoor timing data found for surah ${surah} using read ${TIMING_READ_ID}`
-      );
-    }
-     const raw = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload?.timing)
-      ? payload.timing
-      : Array.isArray(payload?.ayahs)
-      ? payload.ayahs
-      : [];
-     const timings = raw
-      .map((item) => ({
-        ayah: Number(item?.ayah ?? item?.ayah_number ?? item?.number),
-        start_time:
-          Number(item?.start_time ?? item?.start ?? item?.startTime) / 1000,
-        end_time:
-          Number(item?.end_time ?? item?.end ?? item?.endTime) / 1000
-      }))
-      .filter(
-        (item) =>
-          Number.isFinite(item.ayah) &&
-          item.ayah > 0 &&
-          Number.isFinite(item.start_time) &&
-          Number.isFinite(item.end_time) &&
-          item.end_time > item.start_time
-      )
-      .sort((x, y) => x.ayah - y.ayah);
-     if (!timings.length) {
-      throw new Error(`Empty timing data for surah ${surah}`);
-    }
-     await writeFile(timingPart, JSON.stringify(timings));
-    await rename(timingPart, timingPath);
-  }
+      console.log(`Downloading Ramadan Shakoor timing ${id}.json...`);
 
+      let payload = null;
+
+      for (const endpoint of TIMING_ENDPOINTS) {
+        try {
+          const candidate = await fetchOrThrow(
+            `${endpoint}?surah=${surah}&read=${TIMING_READ_ID}`
+          );
+
+          const candidatePayload = await candidate.json();
+          const candidateRaw = Array.isArray(candidatePayload)
+            ? candidatePayload
+            : Array.isArray(candidatePayload?.data)
+            ? candidatePayload.data
+            : Array.isArray(candidatePayload?.timing)
+            ? candidatePayload.timing
+            : Array.isArray(candidatePayload?.ayahs)
+            ? candidatePayload.ayahs
+            : [];
+
+          if (candidateRaw.length) {
+            payload = candidatePayload;
+            break;
+          }
+        } catch {
+          // Try the next documented/legacy endpoint.
+        }
+      }
+
+      if (!payload) {
+        throw new Error(
+          `No Ramadan Shakoor timing data found for surah ${surah} using read ${TIMING_READ_ID}`
+        );
+      }
+
+      const raw = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.timing)
+        ? payload.timing
+        : Array.isArray(payload?.ayahs)
+        ? payload.ayahs
+        : [];
+
+      const timings = raw
+        .map((item) => ({
+          ayah: Number(item?.ayah ?? item?.ayah_number ?? item?.number),
+          start_time:
+            Number(item?.start_time ?? item?.start ?? item?.startTime) / 1000,
+          end_time:
+            Number(item?.end_time ?? item?.end ?? item?.endTime) / 1000
+        }))
+        .filter(
+          (item) =>
+            Number.isFinite(item.ayah) &&
+            item.ayah > 0 &&
+            Number.isFinite(item.start_time) &&
+            Number.isFinite(item.end_time) &&
+            item.end_time > item.start_time
+        )
+        .sort((x, y) => x.ayah - y.ayah);
+
+      if (!timings.length) {
+        throw new Error(`Empty timing data for surah ${surah}`);
+      }
+
+      await writeFile(timingPart, JSON.stringify(timings));
+      await rename(timingPart, timingPath);
     } catch (error) {
       timingSourceUnavailable = true;
       console.warn(
@@ -139,6 +146,7 @@ const prepareSurah = async (surah) => {
       );
     }
   }
+
   console.log(`Ready: Ramadan Shakoor ${id}`);
 };
 
