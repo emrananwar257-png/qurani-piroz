@@ -238,8 +238,10 @@ const writeJsonCache = (
 const formatPageNum = (page: number): string =>
   String(page).padStart(3, '0');
 
+// KSU Ayat Tajweed pages (mirrored from the original KSU Ayat image pack).
+// Using the public image mirror avoids the KSU web server blocking direct image requests.
 const KSU_TAJWEED_PAGE_BASE =
-  'https://quran.ksu.edu.sa/ayat/tajweed_png/';
+  'https://raw.githubusercontent.com/QuranIslam/Ayat/main/tajweed_png/';
 
 const pageImgUrl = (page: number, style: MushafStyleType = 'bw'): string => {
   if (style === 'colored') {
