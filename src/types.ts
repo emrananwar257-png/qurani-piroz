@@ -2,7 +2,7 @@ export type AppThemeMode = 'minimalist-dark' | 'madinah-mushaf' | 'soft-modern';
 export type BgThemeType = 'white' | 'cream' | 'dark';
 export type AppLangType = 'ku' | 'ar' | 'en';
 export type AccentColorType = 'gold' | 'emerald' | 'blue';
-export type MushafStyleType = 'bw' | 'original' | 'colored';
+export type MushafStyleType = 'bw' | 'original' | 'colored' | 'warm';
 
 export interface SurahItem {
   number: number;
