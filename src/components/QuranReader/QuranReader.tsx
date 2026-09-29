@@ -31,6 +31,7 @@ const MP3QURAN_API_BASE =
   'https://mp3quran.net/api/v3';
 
 const RIZGAR_RECITER_ID = 'rizgar_kurdi';
+const RAMADAN_SHAKOOR_RECITER_ID = 'ramadan_shakoor';
 const RIZGAR_AUDIO_BASE =
   'https://github.com/Hiwaselah/qari_kurdi_mutasil/releases/download/rzgar_kurdi_mutasil/';
 
@@ -1396,6 +1397,9 @@ export function QuranReader({
   const rizgarObjectUrlRef =
     useRef<string | null>(null);
 
+  const ramadanObjectUrlRef =
+    useRef<string | null>(null);
+
   const pagesRef =
     useRef<HTMLDivElement | null>(
       null,
@@ -2045,6 +2049,64 @@ export function QuranReader({
             rizgarObjectUrlRef.current =
               objectUrl;
             audio.src = objectUrl;
+          } else if (
+            selectedReciter.id ===
+            RAMADAN_SHAKOOR_RECITER_ID
+          ) {
+            if (ramadanObjectUrlRef.current) {
+              URL.revokeObjectURL(
+                ramadanObjectUrlRef.current,
+              );
+              ramadanObjectUrlRef.current = null;
+            }
+
+            // Ramadan Shakoor uses the same local-full-surah
+            // approach as Rizgar so mobile seeking does not
+            // depend on remote MP3 range requests.
+            let blob = await getSurahAudio(
+              RAMADAN_SHAKOOR_RECITER_ID,
+              surahNumber,
+            );
+
+            if (!blob || blob.size === 0) {
+              const response = await fetch(src, {
+                cache: 'force-cache',
+              });
+
+              if (!response.ok) {
+                throw new Error(
+                  `فایلی دەنگییەکەی ڕەمەزان نەکرا بار بکرێت: ${response.status}`,
+                );
+              }
+
+              blob = await response.blob();
+
+              if (!blob.size) {
+                throw new Error(
+                  'فایلی دەنگییەکەی ڕەمەزان بەتاڵە.',
+                );
+              }
+
+              void saveSurahAudio(
+                RAMADAN_SHAKOOR_RECITER_ID,
+                surahNumber,
+                blob,
+              );
+            }
+
+            const typedBlob =
+              blob.type &&
+              blob.type.startsWith('audio/')
+                ? blob
+                : new Blob([blob], {
+                    type: 'audio/mpeg',
+                  });
+
+            const objectUrl =
+              URL.createObjectURL(typedBlob);
+            ramadanObjectUrlRef.current =
+              objectUrl;
+            audio.src = objectUrl;
           } else {
             audio.src = src;
           }
@@ -2123,7 +2185,10 @@ export function QuranReader({
             // started does not actually move the decoder. Prime the media
             // once from the user's gesture, seek while it is running, then
             // pause before the normal playback starts.
-            if (selectedReciter.id === RIZGAR_RECITER_ID) {
+            if (
+              selectedReciter.id === RIZGAR_RECITER_ID ||
+              selectedReciter.id === RAMADAN_SHAKOOR_RECITER_ID
+            ) {
               await audio.play();
               await waitForSeek();
 
@@ -2142,7 +2207,8 @@ export function QuranReader({
             }
 
             if (
-              selectedReciter.id === RIZGAR_RECITER_ID &&
+              (selectedReciter.id === RIZGAR_RECITER_ID ||
+                selectedReciter.id === RAMADAN_SHAKOOR_RECITER_ID) &&
               Math.abs(audio.currentTime - target) > 0.5
             ) {
               throw new Error(
@@ -2261,6 +2327,11 @@ export function QuranReader({
       if (rizgarObjectUrlRef.current) {
         URL.revokeObjectURL(rizgarObjectUrlRef.current);
         rizgarObjectUrlRef.current = null;
+      }
+
+      if (ramadanObjectUrlRef.current) {
+        URL.revokeObjectURL(ramadanObjectUrlRef.current);
+        ramadanObjectUrlRef.current = null;
       }
 
       setIsLoading(false);
@@ -2514,6 +2585,11 @@ export function QuranReader({
         URL.revokeObjectURL(rizgarObjectUrlRef.current);
         rizgarObjectUrlRef.current = null;
       }
+
+      if (ramadanObjectUrlRef.current) {
+        URL.revokeObjectURL(ramadanObjectUrlRef.current);
+        ramadanObjectUrlRef.current = null;
+      }
     }, []);
 
   const renderAyahAreas =
@@ -2557,7 +2633,8 @@ export function QuranReader({
               type="button"
               aria-label={`ئایەت ${box.surahNumber}:${box.ayahNumber}`}
               onPointerDown={
-                selectedReciter?.id === RIZGAR_RECITER_ID
+                selectedReciter?.id === RIZGAR_RECITER_ID ||
+                selectedReciter?.id === RAMADAN_SHAKOOR_RECITER_ID
                   ? (event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -2571,7 +2648,8 @@ export function QuranReader({
                   : undefined
               }
               onClick={
-                selectedReciter?.id === RIZGAR_RECITER_ID
+                selectedReciter?.id === RIZGAR_RECITER_ID ||
+                selectedReciter?.id === RAMADAN_SHAKOOR_RECITER_ID
                   ? undefined
                   : (event) => {
                       event.stopPropagation();
