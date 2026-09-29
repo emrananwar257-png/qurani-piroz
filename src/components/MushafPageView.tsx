@@ -5899,7 +5899,7 @@ export const MushafPageView: React.FC<
                             'none',
                           filter:
                             mushafStyle === 'colored'
-                              ? 'saturate(0.72) contrast(0.98) brightness(1.03)'
+                              ? 'saturate(0.48) contrast(0.96) brightness(1.02)'
                               : 'none'
                         }}
                       />
