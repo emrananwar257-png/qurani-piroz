@@ -26,7 +26,8 @@ import {
 import {
   BgThemeType,
   AppLangType,
-  SurahItem
+  SurahItem,
+  MushafStyleType
 } from '../types';
 
 import {
@@ -62,13 +63,25 @@ interface MushafPageViewProps {
   showNumbers: boolean;
   surahsList?: SurahItem[];
   onJumpToPage?: (page: number) => void;
+  mushafStyle?: MushafStyleType;
 }
 
 const formatPageNum = (n: number) =>
   String(n).padStart(3, '0');
 
-const pageImgUrl = (n: number) =>
-  `https://android.quran.com/data/width_1260/page${formatPageNum(n)}.png`;
+const KSU_TAJWEED_PAGE_BASE =
+  'https://cdn.jsdelivr.net/gh/QuranIslam/Ayat@main/tajweed_png/';
+
+const pageImgUrl = (
+  n: number,
+  style: MushafStyleType = 'bw'
+) => {
+  if (style === 'colored') {
+    return `${KSU_TAJWEED_PAGE_BASE}${n}.png`;
+  }
+
+  return `https://android.quran.com/data/width_1260/page${formatPageNum(n)}.png`;
+};
 
 const AYAH_CANVAS_WIDTH = 1260;
 const AYAH_CANVAS_HEIGHT = 2020;
@@ -1479,7 +1492,8 @@ export const MushafPageView: React.FC<
   appLang,
   showNumbers,
   surahsList = [],
-  onJumpToPage
+  onJumpToPage,
+  mushafStyle = 'bw'
 }) => {
   const [
     viewMode,
@@ -5862,8 +5876,10 @@ export const MushafPageView: React.FC<
                       }}
                     >
                       <img
+                        key={`mushaf-${pageNum}-${mushafStyle}`}
                         src={pageImgUrl(
-                          pageNum
+                          pageNum,
+                          mushafStyle
                         )}
                         alt={`Page ${pageNum}`}
                         loading="lazy"
