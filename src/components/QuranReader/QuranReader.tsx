@@ -240,9 +240,6 @@ const formatPageNum = (page: number): string =>
 
 const pageImgUrl = (page: number, style: MushafStyleType = 'bw'): string => {
   const p = formatPageNum(page);
-  if (style === 'colored') {
-    return `https://e-quran.com/pic/p${p}.jpg`;
-  }
   return `${QURAN_PAGE_BASE}page${p}.png`;
 };
 
