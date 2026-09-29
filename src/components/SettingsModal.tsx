@@ -147,7 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {[
                 { id: 'bw', label: 'ڕەش و سپی', desc: 'شێوازی ئێستایی' },
                 { id: 'original', label: 'ئەسڵی', desc: 'بێ فلتەر' },
-                { id: 'colored', label: 'ڕەنگدار', desc: 'ڕەنگی ڕوون و نوێ' },
+                { id: 'colored', label: 'تجوید ـی ڕەنگاوڕەنگ (KSU)', desc: 'مصحەفی ڕەنگدار بە ڕێساکانی تجوید' },
                 { id: 'warm', label: 'شاموا', desc: 'کاغەزی گەرم و ئارام' }
               ].map(style => (
                 <button
