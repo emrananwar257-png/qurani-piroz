@@ -3,7 +3,7 @@ import {
   ArrowRight, Palette, Globe, Eye, Sliders, Volume2, 
   BookOpen, Type, Sparkles, Smartphone, Moon, Sun, Bell, Check
 } from 'lucide-react';
-import { BgThemeType, AppLangType, AccentColorType } from '../types';
+import { BgThemeType, AppLangType, AccentColorType, MushafStyleType } from '../types';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -17,6 +17,8 @@ interface SettingsModalProps {
   setShowKurdishNames: (val: boolean) => void;
   showNumbers: boolean;
   setShowNumbers: (val: boolean) => void;
+  mushafStyle: MushafStyleType;
+  setMushafStyle: (val: MushafStyleType) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
