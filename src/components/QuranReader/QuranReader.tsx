@@ -40,6 +40,8 @@ const RECITERS_CACHE_KEY =
 
 const TIMING_CACHE_KEY =
   'quran_mp3quran_timing_v2';
+const RAMADAN_TIMING_UNIT_CACHE_KEY =
+  'ms-v1';
 
 const RAAD_RECITER_ID = 'raad_kurdi';
 const RAAD_TIMING_CACHE_KEY = 'quran_raad_kurdi_timing_v1';
@@ -601,7 +603,11 @@ async function fetchMp3QuranTiming(
   surahNumber: number,
 ): Promise<TimingRow[]> {
   const cacheKey =
-    `${TIMING_CACHE_KEY}:${readId}:${surahNumber}`;
+    `${TIMING_CACHE_KEY}:${readId}:${surahNumber}:${
+      readId === '227'
+        ? RAMADAN_TIMING_UNIT_CACHE_KEY
+        : 'native'
+    }`;
 
   const cached =
     readJsonCache<TimingRow[]>(
@@ -662,17 +668,29 @@ async function fetchMp3QuranTiming(
               index + 1,
           ),
           start:
-            normalizeTimingValue(
-              row?.start_time ??
-                row?.start ??
-                0,
-            ),
+            readId === '227'
+              ? Number(
+                  row?.start_time ??
+                    row?.start ??
+                    0,
+                ) / 1000
+              : normalizeTimingValue(
+                  row?.start_time ??
+                    row?.start ??
+                    0,
+                ),
           end:
-            normalizeTimingValue(
-              row?.end_time ??
-                row?.end ??
-                0,
-            ),
+            readId === '227'
+              ? Number(
+                  row?.end_time ??
+                    row?.end ??
+                    0,
+                ) / 1000
+              : normalizeTimingValue(
+                  row?.end_time ??
+                    row?.end ??
+                    0,
+                ),
         }),
       )
       .filter(
@@ -2725,7 +2743,9 @@ export function QuranReader({
                 border:
                   audioActive
                     ? selectedReciter?.id ===
-                      RIZGAR_RECITER_ID
+                        RIZGAR_RECITER_ID ||
+                      selectedReciter?.id ===
+                        RAMADAN_SHAKOOR_RECITER_ID
                       ? '2px solid rgba(0,150,80,0.95)'
                       : '2px solid rgba(255,174,0,0.9)'
                     : '1px solid transparent',
@@ -2733,14 +2753,18 @@ export function QuranReader({
                 background:
                   audioActive
                     ? selectedReciter?.id ===
-                      RIZGAR_RECITER_ID
+                        RIZGAR_RECITER_ID ||
+                      selectedReciter?.id ===
+                        RAMADAN_SHAKOOR_RECITER_ID
                       ? 'rgba(0,150,80,0.26)'
                       : 'rgba(255,196,0,0.26)'
                     : 'transparent',
                 boxShadow:
                   audioActive
                     ? selectedReciter?.id ===
-                      RIZGAR_RECITER_ID
+                        RIZGAR_RECITER_ID ||
+                      selectedReciter?.id ===
+                        RAMADAN_SHAKOOR_RECITER_ID
                       ? '0 0 14px rgba(0,150,80,0.22)'
                       : '0 0 14px rgba(255,174,0,0.22)'
                     : 'none',
