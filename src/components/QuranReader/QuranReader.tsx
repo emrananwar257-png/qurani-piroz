@@ -676,6 +676,280 @@ async function fetchMp3QuranTiming(
   return timings;
 }
 
+
+const RAMADAN_CUSTOM_TIMING_CACHE_KEY =
+  'quran_ramadan_custom_timing_v1';
+
+type RamadanTimingPoint = {
+  ayah: number;
+  start: number;
+  end: number;
+};
+
+const readRamadanCustomTiming = (
+  surahNumber: number,
+): RamadanTimingPoint[] | null => {
+  const cached =
+    readJsonCache<RamadanTimingPoint[]>(
+      `${RAMADAN_CUSTOM_TIMING_CACHE_KEY}:${surahNumber}`,
+    );
+
+  return Array.isArray(cached) && cached.length
+    ? cached
+    : null;
+};
+
+const writeRamadanCustomTiming = (
+  surahNumber: number,
+  timings: RamadanTimingPoint[],
+) => {
+  writeJsonCache(
+    `${RAMADAN_CUSTOM_TIMING_CACHE_KEY}:${surahNumber}`,
+    timings,
+  );
+};
+
+const getRamadanAyahCount = async (
+  surahNumber: number,
+): Promise<number> => {
+  const response = await fetch(
+    `${QURAN_API_BASE}/surah/${surahNumber}/quran-uthmani`,
+    { cache: 'force-cache' },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Quran surah API: ${response.status}`,
+    );
+  }
+
+  const json = await response.json();
+  const ayahs = Array.isArray(json?.data?.ayahs)
+    ? json.data.ayahs
+    : [];
+
+  return ayahs.length;
+};
+
+const detectRamadanSilenceBoundaries = (
+  audioBuffer: AudioBuffer,
+  ayahCount: number,
+): number[] | null => {
+  if (ayahCount <= 1) return [];
+
+  const sampleRate = audioBuffer.sampleRate;
+  const channelData =
+    audioBuffer.getChannelData(0);
+
+  const windowSeconds = 0.05;
+  const windowSize = Math.max(
+    1,
+    Math.floor(sampleRate * windowSeconds),
+  );
+  const numWindows = Math.floor(
+    channelData.length / windowSize,
+  );
+
+  if (numWindows < 4) return null;
+
+  const energies = new Float32Array(numWindows);
+
+  for (let w = 0; w < numWindows; w += 1) {
+    let sum = 0;
+    const start = w * windowSize;
+    const end = start + windowSize;
+
+    for (let i = start; i < end; i += 1) {
+      const sample = channelData[i];
+      sum += sample * sample;
+    }
+
+    energies[w] = Math.sqrt(sum / windowSize);
+  }
+
+  const sorted = Array.from(energies).sort(
+    (a, b) => a - b,
+  );
+
+  const noiseFloor =
+    sorted[Math.floor(sorted.length * 0.05)] || 0;
+  const peak =
+    sorted[sorted.length - 1] || 0.0001;
+
+  const threshold =
+    noiseFloor + (peak - noiseFloor) * 0.1;
+
+  const minSilenceWindows = Math.max(
+    2,
+    Math.ceil(0.12 / windowSeconds),
+  );
+
+  const runs: Array<{
+    startWindow: number;
+    endWindow: number;
+  }> = [];
+
+  let runStart = -1;
+
+  for (let w = 0; w < numWindows; w += 1) {
+    if (energies[w] < threshold) {
+      if (runStart === -1) runStart = w;
+    } else if (runStart !== -1) {
+      if (w - runStart >= minSilenceWindows) {
+        runs.push({
+          startWindow: runStart,
+          endWindow: w,
+        });
+      }
+      runStart = -1;
+    }
+  }
+
+  if (
+    runStart !== -1 &&
+    numWindows - runStart >= minSilenceWindows
+  ) {
+    runs.push({
+      startWindow: runStart,
+      endWindow: numWindows,
+    });
+  }
+
+  const edgeGuardWindows = minSilenceWindows;
+  const candidates = runs
+    .filter(
+      (run) =>
+        run.startWindow > edgeGuardWindows &&
+        run.endWindow <
+          numWindows - edgeGuardWindows,
+    )
+    .map((run) => ({
+      time:
+        ((run.startWindow + run.endWindow) / 2) *
+        windowSize /
+        sampleRate,
+      strength:
+        run.endWindow - run.startWindow,
+    }));
+
+  const needed = ayahCount - 1;
+
+  if (candidates.length < needed) return null;
+
+  return candidates
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, needed)
+    .sort((a, b) => a.time - b.time)
+    .map((candidate) => candidate.time);
+};
+
+const fetchRamadanCustomTiming = async (
+  surahNumber: number,
+  audioUrl: string,
+): Promise<TimingRow[]> => {
+  const cached =
+    readRamadanCustomTiming(surahNumber);
+
+  if (cached) return cached;
+
+  const AudioContextClass =
+    window.AudioContext ||
+    (window as any).webkitAudioContext;
+
+  if (!AudioContextClass) {
+    throw new Error(
+      'ئەم وێبگەڕە AudioContext پشتگیری ناکات.',
+    );
+  }
+
+  const response = await fetch(audioUrl, {
+    cache: 'force-cache',
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Ramadan audio analysis HTTP ${response.status}`,
+    );
+  }
+
+  const arrayBuffer =
+    await response.arrayBuffer();
+
+  const audioContext =
+    new AudioContextClass();
+
+  try {
+    const audioBuffer =
+      await audioContext.decodeAudioData(
+        arrayBuffer,
+      );
+
+    const ayahCount =
+      await getRamadanAyahCount(
+        surahNumber,
+      );
+
+    const boundaries =
+      detectRamadanSilenceBoundaries(
+        audioBuffer,
+        ayahCount,
+      );
+
+    if (!boundaries) {
+      throw new Error(
+        'سنووری ئایەتەکان لە دەنگەکە بە دڵنیاییەوە نەدۆزرایەوە.',
+      );
+    }
+
+    const points = [
+      0,
+      ...boundaries,
+      audioBuffer.duration,
+    ];
+
+    const timings: TimingRow[] = [];
+
+    for (
+      let i = 0;
+      i < points.length - 1 &&
+      i < ayahCount;
+      i += 1
+    ) {
+      const start = points[i];
+      const end = points[i + 1];
+
+      if (
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        end > start
+      ) {
+        timings.push({
+          ayah: i + 1,
+          start,
+          end,
+        });
+      }
+    }
+
+    if (timings.length !== ayahCount) {
+      throw new Error(
+        'ژمارەی timing ـە دۆزراوەکان لەگەڵ ژمارەی ئایەتەکان یەک نییە.',
+      );
+    }
+
+    writeRamadanCustomTiming(
+      surahNumber,
+      timings,
+    );
+
+    return timings;
+  } finally {
+    await audioContext.close().catch(
+      () => undefined,
+    );
+  }
+};
+
 const makeSurahAudioUrl = (
   reciter: DynamicReciter,
   surahNumber: number,
@@ -1776,10 +2050,13 @@ export function QuranReader({
             : reciter.id === RIZGAR_RECITER_ID
               ? await fetchRizgarTiming(surahNumber)
               : reciter.id === RAMADAN_SHAKOOR_RECITER_ID
-                ? await fetchMp3QuranTiming(
-                    reciter.moshafId,
+                ? await fetchRamadanCustomTiming(
                     surahNumber,
-                  ).catch(() => [])
+                    makeSurahAudioUrl(
+                      reciter,
+                      surahNumber,
+                    ),
+                  )
                 : await fetchMp3QuranTiming(
                     reciter.moshafId,
                     surahNumber,
