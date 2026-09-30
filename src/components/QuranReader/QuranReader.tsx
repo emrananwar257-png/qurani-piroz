@@ -424,6 +424,8 @@ async function fetchDynamicKurdishReciters(): Promise<
           ? json.data
           : [];
 
+  // These three Kurdish reciters have verified, project-specific audio/timing
+  // sources. Do not let the generic MP3Quran directory replace their configs.
   const result: DynamicReciter[] = [
     makeRizgarReciter(),
     makeRaadReciter(),
@@ -431,7 +433,18 @@ async function fetchDynamicKurdishReciters(): Promise<
   ];
 
   for (const reciter of reciters) {
-    if (findKurdishAlias(String(reciter?.name ?? ''))?.id === RIZGAR_RECITER_ID) continue;
+    const aliasId = findKurdishAlias(String(reciter?.name ?? ''))?.id;
+
+    // Keep the verified local/project configuration authoritative for
+    // Rizgar, Raad, and Ramadan Shakoor. The generic API may expose
+    // another moshaf/server for the same reciter name.
+    if (
+      aliasId === RIZGAR_RECITER_ID ||
+      aliasId === RAAD_RECITER_ID ||
+      aliasId === RAMADAN_SHAKOOR_RECITER_ID
+    ) {
+      continue;
+    }
 
     const name = String(
       reciter?.name ?? '',
@@ -1481,10 +1494,12 @@ export function QuranReader({
         const merged = [
           makeRizgarReciter(),
           makeRaadReciter(),
+          makeRamadanShakoorReciter(),
           ...cached.filter(
             (item) =>
               item.id !== RIZGAR_RECITER_ID &&
-              item.id !== RAAD_RECITER_ID,
+              item.id !== RAAD_RECITER_ID &&
+              item.id !== RAMADAN_SHAKOOR_RECITER_ID,
           ),
         ];
 
