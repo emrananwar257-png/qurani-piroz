@@ -158,8 +158,11 @@ const KURDISH_RECITER_ALIASES: Array<{
       'ramadan shakoor',
       'ramadan shakur',
       'رمضان شكور',
+      'رمضان شکوور',
+      'ڕەمەزان شاکور',
+      'ڕەمەزان شکوور',
     ],
-    kurdishName: 'ڕەمەزان شاکور',
+    kurdishName: 'ڕەمەزان شکوور',
   },
   {
     id: 'shirazad_taher',
