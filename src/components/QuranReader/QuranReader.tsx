@@ -1446,6 +1446,12 @@ export function QuranReader({
   const ramadanObjectUrlRef =
     useRef<string | null>(null);
 
+  // Every playback request gets its own session token. This prevents an
+  // older async audio/timing request (for example Raad) from continuing
+  // after the user switches to another reciter (for example Ramadan).
+  const audioSessionRef =
+    useRef<string | null>(null);
+
   const pagesRef =
     useRef<HTMLDivElement | null>(
       null,
@@ -1693,6 +1699,7 @@ export function QuranReader({
     ++playRequestRef.current;
     activeTimingRef.current = null;
     loadingPlayRef.current = false;
+    audioSessionRef.current = null;
 
     if (audio) {
       audio.pause();
@@ -1751,8 +1758,10 @@ export function QuranReader({
         rizgarObjectUrlRef.current = null;
       }
 
-
-
+      if (ramadanObjectUrlRef.current) {
+        URL.revokeObjectURL(ramadanObjectUrlRef.current);
+        ramadanObjectUrlRef.current = null;
+      }
     };
   }, []);
 
@@ -1777,7 +1786,7 @@ export function QuranReader({
         surahNumber: number,
       ) => {
         const key =
-          `${reciter.moshafId}:${surahNumber}`;
+          `${reciter.id}:${reciter.moshafId}:${surahNumber}`;
 
         const local =
           timingCacheRef.current.get(
@@ -2010,6 +2019,9 @@ export function QuranReader({
 
         const requestId =
           ++playRequestRef.current;
+        const sessionKey =
+          `${selectedReciter.id}:${requestId}`;
+        audioSessionRef.current = sessionKey;
 
         loadingPlayRef.current = true;
         setIsLoading(true);
@@ -2052,7 +2064,8 @@ export function QuranReader({
 
           if (
             requestId !==
-            playRequestRef.current
+              playRequestRef.current ||
+            audioSessionRef.current !== sessionKey
           ) return;
 
           setTimingRows(rows);
@@ -2264,7 +2277,8 @@ export function QuranReader({
 
           if (
             requestId !==
-            playRequestRef.current
+              playRequestRef.current ||
+            audioSessionRef.current !== sessionKey
           ) {
             audio.pause();
             return;
@@ -2275,7 +2289,8 @@ export function QuranReader({
         } catch (err) {
           if (
             requestId !==
-            playRequestRef.current
+              playRequestRef.current ||
+            audioSessionRef.current !== sessionKey
           ) return;
 
           activeTimingRef.current = null;
@@ -2344,6 +2359,7 @@ export function QuranReader({
       ++playRequestRef.current;
       loadingPlayRef.current = false;
       activeTimingRef.current = null;
+      audioSessionRef.current = null;
 
       const audio = audioRef.current;
       if (audio) {
@@ -2363,6 +2379,11 @@ export function QuranReader({
       if (ramadanObjectUrlRef.current) {
         URL.revokeObjectURL(ramadanObjectUrlRef.current);
         ramadanObjectUrlRef.current = null;
+      }
+
+      if (audio) {
+        audio.removeAttribute('src');
+        audio.load();
       }
 
       setIsLoading(false);
@@ -2608,6 +2629,7 @@ export function QuranReader({
     useCallback(() => {
       activeTimingRef.current = null;
       loadingPlayRef.current = false;
+      audioSessionRef.current = null;
       setPlayingAyah(null);
       setIsPlaying(false);
       setIsLoading(false);
